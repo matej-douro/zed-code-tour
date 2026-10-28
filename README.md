@@ -5,15 +5,16 @@ A Zed extension plus language server for LSP-driven code tours written as
 renders a virtual annotation block below the selection, with Previous / Next /
 Overview / Stop controls as a code lens row. Source buffers are never edited.
 
-Status: scaffolding. The extension and language server start and speak LSP, but
-tour behavior is not implemented yet. The full design, constraints, and open
-questions live in [HANDOFF.md](HANDOFF.md).
+Status: scaffolding. The extension and language server start and speak LSP, and
+the tour file parser and model are implemented, but tour behavior is not
+implemented yet. The full design, constraints, and open questions live in
+[HANDOFF.md](HANDOFF.md).
 
 ## Roadmap
 
 - [ ] Spike: verify code lens and inlay hint ordering and placement
 - [x] Scaffold Zed extension and tour LSP workspace
-- [ ] Tour file parser and tour model
+- [x] Tour file parser and tour model
 - [ ] LSP initialization, settings, and active tour state
 - [ ] Start/stop code lens and start flow
 - [ ] Body inlay hint renderer
@@ -35,6 +36,7 @@ questions live in [HANDOFF.md](HANDOFF.md).
 - `crates/zed-code-tour-extension`: extension crate, built as a `cdylib` for
   `wasm32-wasip2`.
 - `crates/tour-lsp`: native language server binary speaking LSP over stdio.
+  `crates/tour-lsp/src/tour` contains the `.tour.md` parser and tour model.
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
 - `scripts/test.sh`: formatting, lint, build, and test checks.
 
