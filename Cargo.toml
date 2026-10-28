@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tour-lsp",
+    "crates/zed-code-tour-extension",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/matej-douro/zed-code-tour"
+
+[workspace.dependencies]
+anyhow = "1.0"
+lsp-server = "0.10"
+lsp-types = "0.97"
+serde_json = "1.0"
+zed_extension_api = "0.7.0"
