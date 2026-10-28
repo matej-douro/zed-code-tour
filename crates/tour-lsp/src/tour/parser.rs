@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fmt,
     path::{Path, PathBuf},
 };
@@ -31,6 +32,7 @@ pub enum ParseErrorKind {
     MalformedRange,
     InvalidRange,
     MalformedHintMetadata,
+    DuplicateStepNumber,
 }
 
 impl ParseError {
@@ -58,36 +60,68 @@ impl std::error::Error for ParseError {}
 ///
 /// Relative target paths are resolved against the tour file's directory. The
 /// parser returns every validation error it can find instead of stopping at the
-/// first one, and never panics on malformed input.
+/// first one, and never panics on malformed input. Fenced code blocks and HTML
+/// comments are treated as Markdown structure, so their contents cannot become
+/// tour headings, target links, or hint metadata.
 pub fn parse_tour(tour_path: impl AsRef<Path>, source: &str) -> Result<Tour, Vec<ParseError>> {
     let tour_path = tour_path.as_ref();
     let base_dir = tour_path.parent().unwrap_or_else(|| Path::new(""));
 
+    let source_lines = preprocess(source);
     let mut errors = Vec::new();
     let mut title: Option<String> = None;
     let mut thread_link: Option<ThreadLink> = None;
     let mut steps = Vec::new();
+    let mut seen_step_numbers = HashSet::new();
     let mut current_step: Option<StepBuilder> = None;
 
-    for (index, raw_line) in source.lines().enumerate() {
-        let line_number = u32::try_from(index + 1).unwrap_or(u32::MAX);
-        let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
-        let trimmed = line.trim_start();
+    for line in source_lines {
+        if line.fenced {
+            if let Some(step) = current_step.as_mut() {
+                step.lines.push(line);
+            }
+            continue;
+        }
+
+        if thread_link.is_none()
+            && let Some(link) = find_markdown_links(&line.visible)
+                .into_iter()
+                .find(|link| link.destination.starts_with(THREAD_URI_PREFIX))
+        {
+            thread_link = Some(ThreadLink {
+                text: link.text,
+                uri: link.destination,
+            });
+        }
+
+        let Some(trimmed) = structural_text(&line) else {
+            if let Some(step) = current_step.as_mut() {
+                step.lines.push(line);
+            }
+            continue;
+        };
 
         if let Some(rest) = trimmed.strip_prefix("## ") {
             finish_step(current_step.take(), base_dir, &mut errors, &mut steps);
 
             match parse_step_heading(rest) {
                 Ok((number, step_title)) => {
+                    if !seen_step_numbers.insert(number) {
+                        errors.push(ParseError::new(
+                            Some(line.number),
+                            ParseErrorKind::DuplicateStepNumber,
+                            format!("step number {number} is used more than once"),
+                        ));
+                    }
                     current_step = Some(StepBuilder {
                         number,
                         title: step_title,
-                        heading_line: line_number,
+                        heading_line: line.number,
                         lines: Vec::new(),
                     });
                 }
                 Err(message) => errors.push(ParseError::new(
-                    Some(line_number),
+                    Some(line.number),
                     ParseErrorKind::MalformedStepHeading,
                     message,
                 )),
@@ -98,7 +132,7 @@ pub fn parse_tour(tour_path: impl AsRef<Path>, source: &str) -> Result<Tour, Vec
         if trimmed.starts_with("##") && !trimmed.starts_with("###") {
             finish_step(current_step.take(), base_dir, &mut errors, &mut steps);
             errors.push(ParseError::new(
-                Some(line_number),
+                Some(line.number),
                 ParseErrorKind::MalformedStepHeading,
                 format!("malformed step heading `{}`", trimmed.trim_end()),
             ));
@@ -107,12 +141,12 @@ pub fn parse_tour(tour_path: impl AsRef<Path>, source: &str) -> Result<Tour, Vec
 
         if let Some(rest) = trimmed.strip_prefix("# ") {
             if let Some(step) = current_step.as_mut() {
-                step.lines.push((line_number, line.to_owned()));
+                step.lines.push(line);
             } else if title.is_none() {
-                let parsed_title = rest.trim();
+                let parsed_title = strip_atx_closing(rest);
                 if parsed_title.is_empty() {
                     errors.push(ParseError::new(
-                        Some(line_number),
+                        Some(line.number),
                         ParseErrorKind::MalformedTitle,
                         "tour title must not be empty",
                     ));
@@ -123,16 +157,21 @@ pub fn parse_tour(tour_path: impl AsRef<Path>, source: &str) -> Result<Tour, Vec
             continue;
         }
 
+        if trimmed == "#" {
+            if let Some(step) = current_step.as_mut() {
+                step.lines.push(line);
+            } else if title.is_none() {
+                errors.push(ParseError::new(
+                    Some(line.number),
+                    ParseErrorKind::MalformedTitle,
+                    "tour title must not be empty",
+                ));
+            }
+            continue;
+        }
+
         if let Some(step) = current_step.as_mut() {
-            step.lines.push((line_number, line.to_owned()));
-        } else if thread_link.is_none()
-            && let Some(link) = find_first_markdown_link(line)
-            && link.destination.starts_with(THREAD_URI_PREFIX)
-        {
-            thread_link = Some(ThreadLink {
-                text: link.text,
-                uri: link.destination,
-            });
+            step.lines.push(line);
         }
     }
 
@@ -162,7 +201,7 @@ struct StepBuilder {
     number: u32,
     title: String,
     heading_line: u32,
-    lines: Vec<(u32, String)>,
+    lines: Vec<SourceLine>,
 }
 
 fn finish_step(
@@ -184,33 +223,36 @@ fn parse_step(
     errors: &mut Vec<ParseError>,
 ) -> Option<TourStep> {
     let mut target_link: Option<(u32, MarkdownLink)> = None;
-    let mut hidden_spans = Vec::with_capacity(builder.lines.len());
     let mut hint = None;
 
-    for (line_number, line) in &builder.lines {
-        let comment_spans = html_comment_spans(line);
-        if target_link.is_none() {
-            let visible_line = mask_spans(line, &comment_spans);
-            if let Some(link) = find_first_markdown_link(&visible_line) {
-                target_link = Some((*line_number, link));
-            }
+    for line in &builder.lines {
+        if line.fenced {
+            continue;
         }
 
-        match parse_step_metadata(line) {
-            Ok(Some(comment_hint)) => {
-                if hint.is_none() {
-                    hint = Some(comment_hint);
+        if target_link.is_none()
+            && let Some(link) = find_markdown_links(&line.visible)
+                .into_iter()
+                .find(|link| !link.destination.starts_with(THREAD_URI_PREFIX))
+        {
+            target_link = Some((line.number, link));
+        }
+
+        for comment in &line.comments {
+            match parse_step_metadata(comment) {
+                Ok(Some(comment_hint)) => {
+                    if hint.is_none() {
+                        hint = Some(comment_hint);
+                    }
                 }
+                Ok(None) => {}
+                Err(message) => errors.push(ParseError::new(
+                    Some(line.number),
+                    ParseErrorKind::MalformedHintMetadata,
+                    message,
+                )),
             }
-            Ok(None) => {}
-            Err(message) => errors.push(ParseError::new(
-                Some(*line_number),
-                ParseErrorKind::MalformedHintMetadata,
-                message,
-            )),
         }
-
-        hidden_spans.push((*line_number, comment_spans));
     }
 
     let (target_line, target_link) = match target_link {
@@ -237,14 +279,24 @@ fn parse_step(
     };
 
     let mut body_lines = Vec::with_capacity(builder.lines.len());
-    for ((line_number, line), (_, comment_spans)) in builder.lines.iter().zip(hidden_spans.iter()) {
-        let mut spans = comment_spans.clone();
-        if *line_number == target_line {
+    for line in &builder.lines {
+        if line.fenced {
+            body_lines.push(line.visible.clone());
+            continue;
+        }
+
+        let mut spans = Vec::new();
+        if line.number == target_line {
             spans.push((target_link.start, target_link.end));
+        }
+        for link in find_markdown_links(&line.visible) {
+            if link.destination.starts_with(THREAD_URI_PREFIX) {
+                spans.push((link.start, link.end));
+            }
         }
 
         spans.sort_unstable_by_key(|span| std::cmp::Reverse(span.0));
-        let mut cleaned = line.clone();
+        let mut cleaned = line.visible.clone();
         for (start, end) in spans {
             if start < end && end <= cleaned.len() {
                 cleaned.replace_range(start..end, "");
@@ -279,10 +331,43 @@ fn parse_step_heading(rest: &str) -> Result<(u32, String), String> {
     let title = after_number
         .strip_prefix('.')
         .map(str::trim)
+        .map(strip_atx_closing)
         .filter(|title| !title.is_empty())
         .ok_or_else(|| format!("malformed step heading `## {rest}`"))?;
 
     Ok((number, title.to_owned()))
+}
+
+fn strip_atx_closing(title: &str) -> &str {
+    let title = title.trim();
+    let without_hashes = title.trim_end_matches('#');
+    if without_hashes.len() == title.len() || without_hashes.is_empty() {
+        return title;
+    }
+
+    if without_hashes
+        .chars()
+        .next_back()
+        .is_some_and(char::is_whitespace)
+    {
+        without_hashes.trim_end()
+    } else {
+        title
+    }
+}
+
+fn structural_text(line: &SourceLine) -> Option<&str> {
+    let trimmed = line.visible.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let visible_start = line.visible.len() - trimmed.len();
+    if line.text[..visible_start].chars().all(char::is_whitespace) {
+        Some(trimmed)
+    } else {
+        None
+    }
 }
 
 fn parse_target(link: &MarkdownLink, line: u32, base_dir: &Path) -> Result<TourTarget, ParseError> {
@@ -410,9 +495,25 @@ struct MarkdownLink {
     end: usize,
 }
 
-fn find_first_markdown_link(text: &str) -> Option<MarkdownLink> {
-    text.char_indices()
-        .find_map(|(index, _)| markdown_link_at(text, index))
+fn find_markdown_links(text: &str) -> Vec<MarkdownLink> {
+    let mut links = Vec::new();
+    let mut search_start = 0;
+
+    while search_start < text.len() {
+        let Some(offset) = text[search_start..].find('[') else {
+            break;
+        };
+        let index = search_start + offset;
+
+        if let Some(link) = markdown_link_at(text, index) {
+            search_start = link.end;
+            links.push(link);
+        } else {
+            search_start = index + 1;
+        }
+    }
+
+    links
 }
 
 fn markdown_link_at(text: &str, index: usize) -> Option<MarkdownLink> {
@@ -425,7 +526,7 @@ fn markdown_link_at(text: &str, index: usize) -> Option<MarkdownLink> {
     if bytes.get(close_bracket + 1) != Some(&b'(') {
         return None;
     }
-    let close_paren = find_byte(bytes, close_bracket + 2, b')')?;
+    let close_paren = find_closing_paren(bytes, close_bracket + 2)?;
     let destination = normalize_destination(&text[close_bracket + 2..close_paren]);
 
     Some(MarkdownLink {
@@ -444,6 +545,21 @@ fn find_byte(bytes: &[u8], start: usize, needle: u8) -> Option<usize> {
         .find_map(|(index, byte)| (*byte == needle).then_some(index))
 }
 
+fn find_closing_paren(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut depth = 0usize;
+
+    for (index, byte) in bytes.iter().enumerate().skip(start) {
+        match byte {
+            b'(' => depth += 1,
+            b')' if depth == 0 => return Some(index),
+            b')' => depth -= 1,
+            _ => {}
+        }
+    }
+
+    None
+}
+
 fn normalize_destination(destination: &str) -> String {
     let destination = destination.trim();
     if let Some(inner) = destination
@@ -460,73 +576,230 @@ fn normalize_destination(destination: &str) -> String {
     }
 }
 
-fn parse_step_metadata(line: &str) -> Result<Option<String>, String> {
-    let mut search_start = 0;
-
-    while let Some(offset) = line[search_start..].find("<!--") {
-        let comment_start = search_start + offset;
-        let content_start = comment_start + 4;
-        let Some(close_offset) = line[content_start..].find("-->") else {
-            if line[content_start..]
-                .trim_start()
-                .starts_with(TOUR_STEP_METADATA_PREFIX)
-            {
-                return Err(format!(
-                    "unterminated `{TOUR_STEP_METADATA_PREFIX}` metadata comment"
-                ));
-            }
-            return Ok(None);
-        };
-        let content_end = content_start + close_offset;
-        let content = line[content_start..content_end].trim_start();
-
-        if let Some(data) = content.strip_prefix(TOUR_STEP_METADATA_PREFIX) {
-            let value: Value = serde_json::from_str(data.trim())
-                .map_err(|error| format!("invalid tour-step metadata JSON: {error}"))?;
-            let object = value
-                .as_object()
-                .ok_or_else(|| "tour-step metadata must be a JSON object".to_owned())?;
-
-            return match object.get("hint") {
-                None => Ok(None),
-                Some(Value::String(hint)) => Ok(Some(hint.clone())),
-                Some(_) => Err("tour-step metadata `hint` must be a string".to_owned()),
-            };
-        }
-
-        search_start = content_end + 3;
-    }
-
-    Ok(None)
+struct SourceLine {
+    number: u32,
+    text: String,
+    visible: String,
+    fenced: bool,
+    comments: Vec<CommentBlock>,
 }
 
-fn html_comment_spans(line: &str) -> Vec<(usize, usize)> {
-    let mut spans = Vec::new();
-    let mut search_start = 0;
+struct CommentBlock {
+    content: String,
+    closed: bool,
+}
 
-    while let Some(offset) = line[search_start..].find("<!--") {
-        let comment_start = search_start + offset;
-        let content_start = comment_start + 4;
-        let Some(close_offset) = line[content_start..].find("-->") else {
-            spans.push((comment_start, line.len()));
+struct ActiveComment {
+    start_line_index: usize,
+    content: String,
+}
+
+fn preprocess(source: &str) -> Vec<SourceLine> {
+    let mut lines = Vec::new();
+    let mut fence: Option<Fence> = None;
+    let mut active_comment: Option<ActiveComment> = None;
+
+    for (index, raw_line) in source.lines().enumerate() {
+        let line_number = u32::try_from(index + 1).unwrap_or(u32::MAX);
+        let text = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+        let line_index = lines.len();
+        let mut visible = text.to_owned();
+        let mut completed_comments = Vec::new();
+
+        if let Some(open_fence) = fence {
+            if open_fence.closes(text.trim_start()) {
+                fence = None;
+            }
+            lines.push(SourceLine {
+                number: line_number,
+                text: text.to_owned(),
+                visible,
+                fenced: true,
+                comments: Vec::new(),
+            });
+            continue;
+        }
+
+        if active_comment.is_none()
+            && let Some(open_fence) = Fence::opening(text)
+        {
+            fence = Some(open_fence);
+            lines.push(SourceLine {
+                number: line_number,
+                text: text.to_owned(),
+                visible,
+                fenced: true,
+                comments: Vec::new(),
+            });
+            continue;
+        }
+
+        process_comments(
+            text,
+            &mut visible,
+            &mut active_comment,
+            line_index,
+            &mut completed_comments,
+        );
+
+        lines.push(SourceLine {
+            number: line_number,
+            text: text.to_owned(),
+            visible,
+            fenced: false,
+            comments: Vec::new(),
+        });
+        for (start_index, comment) in completed_comments {
+            lines[start_index].comments.push(comment);
+        }
+    }
+
+    if let Some(comment) = active_comment {
+        lines[comment.start_line_index].comments.push(CommentBlock {
+            content: comment.content,
+            closed: false,
+        });
+    }
+
+    lines
+}
+
+fn process_comments(
+    text: &str,
+    visible: &mut String,
+    active_comment: &mut Option<ActiveComment>,
+    line_index: usize,
+    completed_comments: &mut Vec<(usize, CommentBlock)>,
+) {
+    if let Some(comment) = active_comment.as_mut() {
+        comment.content.push('\n');
+    }
+
+    let mut position = 0;
+    loop {
+        if let Some(comment) = active_comment.as_mut() {
+            if let Some(offset) = text[position..].find("-->") {
+                let comment_end = position + offset;
+                comment.content.push_str(&text[position..comment_end]);
+                mask_range(visible, position, comment_end + 3);
+
+                let comment = active_comment.take().expect("active comment");
+                completed_comments.push((
+                    comment.start_line_index,
+                    CommentBlock {
+                        content: comment.content,
+                        closed: true,
+                    },
+                ));
+                position = comment_end + 3;
+                continue;
+            }
+
+            comment.content.push_str(&text[position..]);
+            mask_range(visible, position, text.len());
+            break;
+        }
+
+        let Some(offset) = text[position..].find("<!--") else {
             break;
         };
-        let comment_end = content_start + close_offset + 3;
-        spans.push((comment_start, comment_end));
-        search_start = comment_end;
-    }
+        let comment_start = position + offset;
+        let content_start = comment_start + 4;
 
-    spans
-}
-
-fn mask_spans(line: &str, spans: &[(usize, usize)]) -> String {
-    let mut masked = line.to_owned();
-    for &(start, end) in spans.iter().rev() {
-        if start < end && end <= masked.len() {
-            masked.replace_range(start..end, &" ".repeat(end - start));
+        if let Some(close_offset) = text[content_start..].find("-->") {
+            let content_end = content_start + close_offset;
+            completed_comments.push((
+                line_index,
+                CommentBlock {
+                    content: text[content_start..content_end].to_owned(),
+                    closed: true,
+                },
+            ));
+            mask_range(visible, comment_start, content_end + 3);
+            position = content_end + 3;
+        } else {
+            *active_comment = Some(ActiveComment {
+                start_line_index: line_index,
+                content: text[content_start..].to_owned(),
+            });
+            mask_range(visible, comment_start, text.len());
+            break;
         }
     }
-    masked
+}
+
+fn mask_range(text: &mut String, start: usize, end: usize) {
+    if start < end && end <= text.len() {
+        text.replace_range(start..end, &" ".repeat(end - start));
+    }
+}
+
+fn parse_step_metadata(comment: &CommentBlock) -> Result<Option<String>, String> {
+    let content = comment.content.trim_start();
+    let Some(data) = content.strip_prefix(TOUR_STEP_METADATA_PREFIX) else {
+        return Ok(None);
+    };
+
+    if !comment.closed {
+        return Err(format!(
+            "unterminated `{TOUR_STEP_METADATA_PREFIX}` metadata comment"
+        ));
+    }
+
+    let value: Value = serde_json::from_str(data.trim())
+        .map_err(|error| format!("invalid tour-step metadata JSON: {error}"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "tour-step metadata must be a JSON object".to_owned())?;
+
+    match object.get("hint") {
+        None => Ok(None),
+        Some(Value::String(hint)) => Ok(Some(hint.clone())),
+        Some(_) => Err("tour-step metadata `hint` must be a string".to_owned()),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Fence {
+    marker: char,
+    length: usize,
+}
+
+impl Fence {
+    fn opening(line: &str) -> Option<Self> {
+        let trimmed = line.trim_start_matches(' ');
+        if line.len() - trimmed.len() > 3 {
+            return None;
+        }
+
+        let marker = trimmed.chars().next()?;
+        if marker != '`' && marker != '~' {
+            return None;
+        }
+
+        let length = trimmed
+            .chars()
+            .take_while(|character| *character == marker)
+            .count();
+        if length < 3 || (marker == '`' && trimmed[length..].contains('`')) {
+            return None;
+        }
+
+        Some(Self { marker, length })
+    }
+
+    fn closes(self, line: &str) -> bool {
+        let trimmed = line.trim_start_matches(' ');
+        if line.len() - trimmed.len() > 3 || !trimmed.starts_with(self.marker) {
+            return false;
+        }
+
+        let length = trimmed
+            .chars()
+            .take_while(|character| *character == self.marker)
+            .count();
+        length >= self.length && trimmed[length..].trim().is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -881,7 +1154,7 @@ This step has no target link.
 
     #[test]
     fn rejects_non_file_targets() {
-        let cases = ["zed:///agent/thread/session-1#L1:1-L1:2", "#L1:1-L1:2"];
+        let cases = ["file:///tmp/src.rs#L1:1-L1:2", "#L1:1-L1:2"];
 
         for target in cases {
             let source = format!(
@@ -925,5 +1198,221 @@ This step has no target link.
                 "expected malformed hint metadata for {metadata}"
             );
         }
+    }
+    #[test]
+    fn ignores_tour_syntax_inside_fenced_code_blocks() {
+        let tour = parse(
+            r#"# Fenced
+
+## 1. Entry
+[target](src/main.rs#L1:1-L1:5)
+
+Visible body.
+
+```rust
+## 2. Not a step
+[fake](fake.rs#L1:1-L1:2)
+<!-- tour-step: {"hint": "fake hint"} -->
+```
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(tour.steps.len(), 1);
+        assert_eq!(tour.steps[0].title, "Entry");
+        assert_eq!(tour.steps[0].target.path, Path::new("/tours/src/main.rs"));
+        assert_eq!(tour.steps[0].hint, None);
+        assert_eq!(tour.steps[0].body_hint(), "Visible body.");
+        assert!(tour.steps[0].body.contains("## 2. Not a step"));
+        assert!(tour.steps[0].body.contains("<!-- tour-step:"));
+    }
+
+    #[test]
+    fn hides_multiline_html_comments_from_the_body() {
+        let tour = parse(
+            r#"# Comments
+
+## 1. Entry
+[target](src/main.rs#L1:1-L1:5)
+
+<!-- start
+still hidden -->
+visible body
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(tour.steps[0].body_hint(), "visible body");
+        assert!(!tour.steps[0].body.contains("still hidden"));
+        assert!(!tour.steps[0].body.contains("-->"));
+    }
+
+    #[test]
+    fn parses_multiline_tour_step_metadata() {
+        let tour = parse(
+            r#"# Hints
+
+## 1. Entry
+[target](src/main.rs#L1:1-L1:5)
+
+<!-- tour-step: {
+  "hint": "Multi-line hint"
+} -->
+
+Visible body.
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(tour.steps[0].hint.as_deref(), Some("Multi-line hint"));
+        assert_eq!(tour.steps[0].body_hint(), "Multi-line hint");
+        assert_eq!(tour.steps[0].body, "Visible body.");
+    }
+
+    #[test]
+    fn parses_link_destinations_with_balanced_parentheses() {
+        let tour = parse(
+            r#"# Parentheses
+
+## 1. Entry
+[target](dir/a(1).rs#L1:1-L1:5)
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(tour.steps[0].target.raw_path, "dir/a(1).rs");
+        assert_eq!(tour.steps[0].target.path, Path::new("/tours/dir/a(1).rs"));
+    }
+
+    #[test]
+    fn finds_a_thread_link_that_is_not_the_first_link() {
+        let tour = parse(
+            r#"# Thread
+
+[other](https://example.com) [thread](zed:///agent/thread/session-1?name=Auth)
+
+## 1. Entry
+[target](src/main.rs#L1:1-L1:5)
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(
+            tour.thread_link,
+            Some(ThreadLink {
+                text: "thread".to_owned(),
+                uri: "zed:///agent/thread/session-1?name=Auth".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn finds_a_thread_link_after_the_steps() {
+        let tour = parse(
+            r#"# Thread
+
+## 1. Entry
+[target](src/main.rs#L1:1-L1:5)
+
+[thread](zed:///agent/thread/session-1)
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(
+            tour.thread_link,
+            Some(ThreadLink {
+                text: "thread".to_owned(),
+                uri: "zed:///agent/thread/session-1".to_owned(),
+            })
+        );
+        assert_eq!(tour.steps[0].body, "");
+    }
+
+    #[test]
+    fn reports_duplicate_step_numbers() {
+        let errors = errors(
+            r#"# Duplicates
+
+## 1. First
+[first](src/first.rs#L1:1-L1:2)
+
+## 1. Second
+[second](src/second.rs#L1:1-L1:2)
+"#,
+        );
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ParseErrorKind::DuplicateStepNumber);
+        assert_eq!(errors[0].line, Some(6));
+    }
+
+    #[test]
+    fn strips_closed_atx_hashes_from_titles() {
+        let tour = parse(
+            r#"# Title #
+
+## 1. Step title ##
+[target](src/main.rs#L1:1-L1:5)
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(tour.title, "Title");
+        assert_eq!(tour.steps[0].title, "Step title");
+    }
+
+    #[test]
+    fn reports_a_bare_hash_as_a_malformed_title() {
+        let kinds = error_kinds(
+            r#"#
+## 1. Entry
+[target](src/main.rs#L1:1-L1:5)
+"#,
+        );
+
+        assert!(kinds.contains(&ParseErrorKind::MalformedTitle));
+    }
+
+    #[test]
+    fn removes_a_target_link_with_a_comment_inside_its_text() {
+        let tour = parse(
+            r#"# Overlap
+
+## 1. Entry
+[ab<!--x-->cd](src/main.rs#L1:1-L1:5)
+
+Visible body.
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(tour.steps[0].target.path, Path::new("/tours/src/main.rs"));
+        assert_eq!(tour.steps[0].body, "Visible body.");
+        assert!(!tour.steps[0].body.contains("src/main.rs"));
+    }
+    #[test]
+    fn ignores_a_thread_link_when_choosing_a_step_target() {
+        let tour = parse(
+            r#"# Thread first
+
+## 1. Entry
+[thread](zed:///agent/thread/session-1)
+[target](src/main.rs#L1:1-L1:5)
+
+Visible body.
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(tour.steps[0].target.path, Path::new("/tours/src/main.rs"));
+        assert_eq!(
+            tour.thread_link,
+            Some(ThreadLink {
+                text: "thread".to_owned(),
+                uri: "zed:///agent/thread/session-1".to_owned(),
+            })
+        );
+        assert_eq!(tour.steps[0].body, "Visible body.");
     }
 }
