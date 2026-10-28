@@ -8,9 +8,10 @@ Overview / Stop controls as a code lens row. Source buffers are never edited.
 Status: scaffolding. The extension and language server start and speak LSP, the
 tour file parser and model are implemented, the language server tracks one
 active tour, and the tour file has a start/stop code lens with the `always`,
-`prompt`, and `never` auto-start modes. Source-file hints, step controls,
-navigation, and agent integration are not implemented yet. The full design,
-constraints, and open questions live in [HANDOFF.md](HANDOFF.md).
+`prompt`, and `never` auto-start modes. Character-range navigation selects exact
+UTF-16 ranges with `window/showDocument`; source-file hints, step controls, and
+agent integration are not implemented yet. The full design, constraints, and
+open questions live in [HANDOFF.md](HANDOFF.md).
 
 ## Roadmap
 
@@ -21,7 +22,7 @@ constraints, and open questions live in [HANDOFF.md](HANDOFF.md).
 - [x] Start/stop code lens and start flow
 - [ ] Body inlay hint renderer
 - [ ] Step control code lens row
-- [ ] Character-level range navigation with `window/showDocument`
+- [x] Character-level range navigation with `window/showDocument`
 - [ ] Agent integration, sample tour, and usage docs
 - [ ] Thread link support and routing gap
 - [ ] Test harness and manual verification matrix
@@ -40,8 +41,10 @@ constraints, and open questions live in [HANDOFF.md](HANDOFF.md).
 - `crates/tour-lsp`: native language server binary speaking LSP over stdio.
   `crates/tour-lsp/src/tour` contains the `.tour.md` parser and tour model.
   `crates/tour-lsp/src/settings.rs` and `state.rs` contain the validated
-  settings and active-tour state machine. See
-  [docs/lsp-state.md](docs/lsp-state.md).
+  settings and active-tour state machine. Character-range conversion and
+  navigation commands live in `navigation.rs`. See
+  [docs/lsp-state.md](docs/lsp-state.md) and
+  [docs/navigation.md](docs/navigation.md).
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
 - `scripts/test.sh`: formatting, lint, build, and test checks.
 

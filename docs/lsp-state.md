@@ -1,8 +1,9 @@
 # Language server initialization and state
 
 This document describes the protocol surface, active-tour state, and start/stop
-flow. Source-file overlays, step controls, navigation, and agent integration are
-implemented by later issues.
+flow. Character-range navigation is described in
+[navigation.md](navigation.md). Source-file overlays, step controls, and agent
+integration are implemented by later issues.
 
 ## Capabilities and commands
 
@@ -14,10 +15,12 @@ The server advertises:
 - `executeCommandProvider` with `tour.start`, `tour.stop`, `tour.next`,
   `tour.previous`, `tour.goto`, `tour.overview`, and `tour.backToThread`.
 
-`tour.start` and `tour.stop` are handled. `tour.start` starts an inactive tour
-at step 0 and restarts a running tour at step 0. `tour.stop` marks the tour
-inactive. The remaining commands are advertised but are no-ops until issues #7
-and #8 implement step controls and navigation.
+`tour.start`, `tour.stop`, `tour.next`, `tour.previous`, and `tour.goto` are
+handled. `tour.start` starts an inactive tour at step 0, restarts a running tour
+at step 0, and selects that range. `tour.stop` marks the tour inactive. The
+navigation commands select exact UTF-16 ranges; see
+[navigation.md](navigation.md). `tour.overview` and `tour.backToThread` remain
+advertised no-ops until issues #7 and #10.
 
 ## Start/stop code lens
 
@@ -53,8 +56,10 @@ On `didOpen` of a valid `.tour.md` document:
 Prompt responses are matched by request id. Opening another tour clears any
 pending prompt, so a response from an older prompt cannot start the new tour.
 
-The start flow does not change the user's selection. Character-range navigation
-with `window/showDocument` belongs to issue #8.
+Starting a tour with steps also selects step 0 through `window/showDocument`.
+If the target cannot be read or the range does not fit the current source text,
+the start fails with a clear error and the tour stays inactive. Character-range
+conversion is described in [navigation.md](navigation.md).
 
 When code lens is disabled in Zed, the client does not request lenses and the
 start/stop lens is not shown. Auto-start and prompt still start the tour because
@@ -102,11 +107,15 @@ is published.
 A first-class top-level `tour` settings section is out of scope. It would need a
 core settings or context-server-settings change.
 
-## Document filter
+## Documents
 
-Only Markdown documents whose path ends in `.tour.md` are processed. `didOpen`
-and `didChange` for other Markdown buffers, and for non-Markdown documents, are
-ignored without changing state or sending refreshes.
+Only Markdown documents whose path ends in `.tour.md` are processed as tours.
+`didOpen` and `didChange` for other documents update the source-text cache
+without changing tour state or sending refreshes. The cache lets navigation use
+unsaved source content; when a target is not open, the server reads it from
+disk. `didClose` removes the cached text. Full sync is advertised; an
+incremental change to a source document drops its cached text rather than
+keeping stale content.
 
 ## Active tour state
 
@@ -115,8 +124,13 @@ The server holds at most one active tour with:
 - tour document URI,
 - parsed tour, including ordered steps,
 - zero-based current step index,
-- resolved source URI and source range for the current step,
+- resolved source URI for the current step,
+- optional UTF-16-correct source range resolved from source text,
 - running flag.
+
+The state layer resolves only the source URI. The server resolves the LSP range
+from the current source text in `navigation.rs`, so ranges never fall back to a
+naive character-column conversion.
 
 Opening a valid `.tour.md` document replaces the previous tour and selects step
 0. The tour is not running until the start flow in issue #5 starts it. A tour
@@ -145,5 +159,6 @@ workspace state is left to a later issue.
 After a tour is opened, updated, or cleared, the server sends
 `workspace/inlayHint/refresh` and `workspace/codeLens/refresh`. Starting,
 stopping, restarting, and confirming a start prompt also refresh both overlays so
-the lens label changes. Non-tour documents, changes to inactive tours, and stop
-commands on an already inactive tour do not send refreshes.
+the lens label changes. A successful navigation sends `window/showDocument`
+followed by both refreshes. Non-tour documents, changes to inactive tours, and
+stop commands on an already inactive tour do not send refreshes.

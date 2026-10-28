@@ -806,8 +806,6 @@ impl Fence {
 mod tests {
     use std::path::Path;
 
-    use lsp_types::{Position, Range};
-
     use super::{ParseError, ParseErrorKind, parse_tour};
     use crate::tour::{ThreadLink, Tour, TourPosition, TourRange};
 
@@ -881,7 +879,7 @@ The program starts here, then calls the router at line 14.
     }
 
     #[test]
-    fn converts_one_based_ranges_to_zero_based_lsp_positions() {
+    fn preserves_one_based_character_ranges_from_the_link() {
         let tour = parse(
             r#"# Columns
 
@@ -891,12 +889,12 @@ The program starts here, then calls the router at line 14.
         )
         .expect("tour should parse");
 
-        let range = tour.steps[0].target.range;
-        assert_eq!(range.start, TourPosition { line: 3, column: 7 });
-        assert_eq!(range.end, TourPosition { line: 4, column: 2 });
         assert_eq!(
-            range.to_lsp_range(),
-            Range::new(Position::new(2, 6), Position::new(3, 1))
+            tour.steps[0].target.range,
+            TourRange {
+                start: TourPosition { line: 3, column: 7 },
+                end: TourPosition { line: 4, column: 2 },
+            }
         );
     }
 

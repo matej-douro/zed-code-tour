@@ -55,20 +55,12 @@ impl ActiveTour {
     }
 
     fn resolve_current_step(&mut self) {
-        let resolved = self.current_step().and_then(|step| {
-            file_uri(&step.target.path).map(|uri| (uri, step.target.range.to_lsp_range()))
-        });
-
-        match resolved {
-            Some((uri, range)) => {
-                self.source_uri = Some(uri);
-                self.source_range = Some(range);
-            }
-            None => {
-                self.source_uri = None;
-                self.source_range = None;
-            }
-        }
+        self.source_uri = self
+            .current_step()
+            .and_then(|step| file_uri(&step.target.path));
+        // The LSP range depends on source text (UTF-16 columns), so it is
+        // resolved by the server in navigation.rs and is never fabricated here.
+        self.source_range = None;
     }
 }
 
@@ -173,7 +165,7 @@ impl TourState {
 mod tests {
     use std::str::FromStr;
 
-    use lsp_types::{Position, Range, Uri};
+    use lsp_types::Uri;
 
     use super::{ActiveTour, OpenTourError, TourState, UpdateOutcome};
 
@@ -214,10 +206,7 @@ mod tests {
             active.source_uri.as_ref().map(|uri| uri.as_str()),
             Some("file:///tours/src/one.rs")
         );
-        assert_eq!(
-            active.source_range,
-            Some(Range::new(Position::new(0, 0), Position::new(0, 3)))
-        );
+        assert_eq!(active.source_range, None);
         assert!(!active.running);
 
         state
@@ -233,10 +222,7 @@ mod tests {
             active.source_uri.as_ref().map(|uri| uri.as_str()),
             Some("file:///tours/src/two.rs")
         );
-        assert_eq!(
-            active.source_range,
-            Some(Range::new(Position::new(1, 2), Position::new(3, 4)))
-        );
+        assert_eq!(active.source_range, None);
         assert!(!active.running);
     }
 
@@ -322,10 +308,7 @@ mod tests {
             active.source_uri.as_ref().map(|uri| uri.as_str()),
             Some("file:///tours/src/three.rs")
         );
-        assert_eq!(
-            active.source_range,
-            Some(Range::new(Position::new(6, 0), Position::new(6, 8)))
-        );
+        assert_eq!(active.source_range, None);
     }
 
     #[test]
