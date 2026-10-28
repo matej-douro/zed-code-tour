@@ -206,8 +206,8 @@ def display_rows(
 
     The real renderer is not used here. The model assumes:
     - a code lens block with Above placement renders before the anchored row;
-    - at line start, a right-biased hint is before the lens, and a left-biased
-      hint pushes the lens below the body;
+    - at line start, a right-biased hint lets the lens render above it, while
+      a left-biased hint pushes the lens below the body;
     - at line end, the lens is above the source line and the body follows it;
     - a trailing newline in the hint text moves the source line after the body.
 

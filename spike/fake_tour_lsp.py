@@ -5,9 +5,9 @@ This server is spike-only. It is not imported by the extension or the real
 language server. It returns one code lens and one or two inlay hints so the
 layout can be checked by hand or by the tests in this directory.
 
-The hint and lens positions are computed by layout.py. The server deliberately
-sends no styling fields: kind, padding, and tooltip are all omitted, matching
-the production design.
+The hint and lens positions are computed by layout.py. The server omits
+`kind`, `paddingRight`, and `tooltip`. It can send the standard `paddingLeft`
+flag, which is not a style but also gives the hint a right-biased anchor.
 """
 
 from __future__ import annotations
