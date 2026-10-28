@@ -2,7 +2,8 @@
 
 The language server returns exactly one multi-line inlay hint for the active
 step. The hint contains body text only; controls belong to the code lens row in
-issue #7. It uses the stock `hint` style with no per-item style fields.
+[step-controls.md](step-controls.md). It uses the stock `hint` style with no
+per-item style fields.
 
 ## Request behavior
 

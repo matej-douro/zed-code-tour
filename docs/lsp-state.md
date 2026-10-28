@@ -2,9 +2,10 @@
 
 This document describes the protocol surface, active-tour state, start/stop
 flow, and the body inlay hint. Character-range navigation is described in
-[navigation.md](navigation.md), and the body hint in
-[body-hint.md](body-hint.md). Source-file step controls are implemented by a
-later issue. The agent-facing usage flow is documented in the README.
+[navigation.md](navigation.md), the body hint in
+[body-hint.md](body-hint.md), and source step controls in
+[step-controls.md](step-controls.md). The agent-facing usage flow is documented
+in the README.
 
 ## Capabilities and commands
 
@@ -20,15 +21,16 @@ The server advertises:
 handled. `tour.start` starts an inactive tour at step 0, restarts a running tour
 at step 0, and selects that range. `tour.stop` marks the tour inactive. The
 navigation commands select exact UTF-16 ranges; see
-[navigation.md](navigation.md). `tour.overview` and `tour.backToThread` remain
-advertised no-ops until issues #7 and #10.
+[navigation.md](navigation.md). `tour.overview` focuses the active tour file at
+the top. `tour.backToThread` remains an advertised no-op until issue #10.
 
-## Start/stop code lens
+## Code lens
 
-`textDocument/codeLens` returns lenses only for the active tour document. Other
-documents, including source files, return an empty array.
+`textDocument/codeLens` returns the tour-file lens for the active tour document
+and the step control row for the active step's source file while the tour is
+running. Other documents return an empty array.
 
-The lens is anchored at the first line, character 0:
+The tour-file lens is anchored at the first line, character 0:
 
 - Inactive: `▶ Start tour (N steps)`, command `tour.start`.
 - Active: `■ Stop tour` (command `tour.stop`) followed by
@@ -39,6 +41,10 @@ separates lenses on the same line with ` | `, which renders the documented
 `■ Stop tour | ⟳ Restart | 2/N` row. The step counter is part of the restart
 lens so it does not need a non-interactive lens. Both starting and restarting
 select step 0 and send both refresh notifications.
+
+The source row is described in [step-controls.md](step-controls.md). It is one
+line of four lenses (`◀ Prev`, `<current>/<total> | Next ▶`, `Overview`, `Stop`)
+for multi-step tours, or `1/1 | Overview | Stop` for single-step tours.
 
 ## Start flow
 
@@ -165,6 +171,8 @@ workspace state is left to a later issue.
 After a tour is opened, updated, or cleared, the server sends
 `workspace/inlayHint/refresh` and `workspace/codeLens/refresh`. Starting,
 stopping, restarting, and confirming a start prompt also refresh both overlays so
-the lens label changes. A successful navigation sends `window/showDocument`
-followed by both refreshes. Non-tour documents, changes to inactive tours, and
-stop commands on an already inactive tour do not send refreshes.
+the lens labels and control row change. A successful navigation sends
+`window/showDocument` followed by both refreshes. Opening, changing, or closing
+the active source document also refreshes both overlays. Non-tour documents,
+changes to inactive tours, and stop commands on an already inactive tour do not
+send refreshes.

@@ -1,7 +1,7 @@
 # Inside zed-code-tour
 
-This sample tour walks through the parser, the tour model, and the start lens in
-this repository. The thread link below is illustrative and does not resolve.
+This sample tour walks through the parser, the tour model, and the code lens rows
+in this repository. The thread link below is illustrative and does not resolve.
 
 [Back to the creating thread](zed:///agent/thread/sample-session?name=Code%20tour%20example)
 
@@ -17,8 +17,8 @@ and returns all validation errors together.
 The model keeps the title, the optional thread link, and the ordered steps. Each
 step stores its target path, range, body, and optional hint.
 
-## 3. Start and stop lens
-[../crates/tour-lsp/src/server.rs:467:5-498:6](../crates/tour-lsp/src/server.rs#L467:5-L498:6)
+## 3. Code lens rows
+[../crates/tour-lsp/src/server.rs:468:5-519:6](../crates/tour-lsp/src/server.rs#L468:5-L519:6)
 
-The tour file gets one lens at the top. It starts the tour when inactive and
-offers stop and restart while the tour is running.
+The tour file gets one lens at the top, while the active source file gets the
+step control row. Both use the stock code lens style.
