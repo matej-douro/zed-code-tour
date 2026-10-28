@@ -1,8 +1,8 @@
 # Language server initialization and state
 
-This document describes the protocol surface and active-tour state added for
-issue #4. Hints, lenses, navigation, and agent integration are implemented by
-later issues.
+This document describes the protocol surface, active-tour state, and start/stop
+flow. Source-file overlays, step controls, navigation, and agent integration are
+implemented by later issues.
 
 ## Capabilities and commands
 
@@ -14,8 +14,52 @@ The server advertises:
 - `executeCommandProvider` with `tour.start`, `tour.stop`, `tour.next`,
   `tour.previous`, `tour.goto`, `tour.overview`, and `tour.backToThread`.
 
-Advertised commands are not handled yet. Command behavior belongs to issues #5,
-#7, and #8.
+`tour.start` and `tour.stop` are handled. `tour.start` starts an inactive tour
+at step 0 and restarts a running tour at step 0. `tour.stop` marks the tour
+inactive. The remaining commands are advertised but are no-ops until issues #7
+and #8 implement step controls and navigation.
+
+## Start/stop code lens
+
+`textDocument/codeLens` returns lenses only for the active tour document. Other
+documents, including source files, return an empty array.
+
+The lens is anchored at the first line, character 0:
+
+- Inactive: `▶ Start tour (N steps)`, command `tour.start`.
+- Active: `■ Stop tour` (command `tour.stop`) followed by
+  `⟳ Restart | <current>/<total>` (command `tour.start`).
+
+LSP code lenses carry one command each, so the active row is two lenses. Zed
+separates lenses on the same line with ` | `, which renders the documented
+`■ Stop tour | ⟳ Restart | 2/N` row. The step counter is part of the restart
+lens so it does not need a non-interactive lens. Both starting and restarting
+select step 0 and send both refresh notifications.
+
+## Start flow
+
+On `didOpen` of a valid `.tour.md` document:
+
+- `auto_start: "always"` starts the tour at step 0 and sends
+  `workspace/inlayHint/refresh` and `workspace/codeLens/refresh`.
+- `auto_start: "prompt"` sends `window/showMessageRequest` with the tour title
+  and `Start tour` / `Not now` actions. The tour stays inactive until the client
+  responds with `Start tour`. Confirmation starts at step 0 and refreshes the
+  overlays. `Not now`, a null response, or a stale response leaves the tour
+  inactive and does not change the tour file.
+- `auto_start: "never"` leaves the tour inactive until the user clicks the start
+  lens or runs `tour.start`.
+
+Prompt responses are matched by request id. Opening another tour clears any
+pending prompt, so a response from an older prompt cannot start the new tour.
+
+The start flow does not change the user's selection. Character-range navigation
+with `window/showDocument` belongs to issue #8.
+
+When code lens is disabled in Zed, the client does not request lenses and the
+start/stop lens is not shown. Auto-start and prompt still start the tour because
+they are server-side; the missing step controls and manual start lens are
+expected in that mode. Enabling code lens (`code_lens: "on"`) restores them.
 
 ## Settings
 
@@ -99,5 +143,7 @@ workspace state is left to a later issue.
 ## Refreshes
 
 After a tour is opened, updated, or cleared, the server sends
-`workspace/inlayHint/refresh` and `workspace/codeLens/refresh`. Non-tour
-documents and changes to inactive tours do not send refreshes.
+`workspace/inlayHint/refresh` and `workspace/codeLens/refresh`. Starting,
+stopping, restarting, and confirming a start prompt also refresh both overlays so
+the lens label changes. Non-tour documents, changes to inactive tours, and stop
+commands on an already inactive tour do not send refreshes.

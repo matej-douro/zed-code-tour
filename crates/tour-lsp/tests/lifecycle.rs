@@ -35,15 +35,28 @@ impl LspClient {
     }
 
     fn initialize(&mut self) {
+        self.initialize_with_options(None);
+    }
+
+    fn initialize_with_auto_start(&mut self, auto_start: &str) {
+        self.initialize_with_options(Some(json!({ "auto_start": auto_start })));
+    }
+
+    fn initialize_with_options(&mut self, initialization_options: Option<Value>) {
+        let mut params = json!({
+            "processId": null,
+            "rootUri": null,
+            "capabilities": {},
+        });
+        if let Some(options) = initialization_options {
+            params["initializationOptions"] = options;
+        }
+
         self.send(json!({
             "jsonrpc": "2.0",
             "id": 1,
             "method": "initialize",
-            "params": {
-                "processId": null,
-                "rootUri": null,
-                "capabilities": {},
-            },
+            "params": params,
         }));
 
         let initialize_response = self.receive();
@@ -123,12 +136,16 @@ impl LspClient {
     }
 
     fn receive_until_response(&mut self, id: i64) -> Vec<Value> {
+        self.receive_until_result(id).0
+    }
+
+    fn receive_until_result(&mut self, id: i64) -> (Vec<Value>, Value) {
         let mut messages = Vec::new();
 
         loop {
             let message = self.receive();
             if message.get("method").is_none() && message["id"] == json!(id) {
-                return messages;
+                return (messages, message);
             }
             messages.push(message);
         }
@@ -225,7 +242,7 @@ fn exits_when_stdin_closes() {
 #[test]
 fn refreshes_hints_and_lenses_for_tour_documents_only() {
     let mut client = LspClient::start();
-    client.initialize();
+    client.initialize_with_auto_start("never");
 
     client.send(json!({
         "jsonrpc": "2.0",
@@ -270,6 +287,131 @@ fn refreshes_hints_and_lenses_for_tour_documents_only() {
         vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
     );
 
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null,
+    }));
+    assert!(client.wait_with_timeout().success());
+}
+
+fn open_tour(client: &mut LspClient, text: &str) {
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": "file:///tours/example.tour.md",
+                "languageId": "Tour",
+                "version": 1,
+                "text": text,
+            },
+        },
+    }));
+}
+
+const TWO_STEP_TOUR: &str = "# Tour\n\n## 1. Entry\n[entry](src/main.rs#L1:1-L1:5)\n\n## 2. Router\n[router](src/router.rs#L2:1-L2:4)\n";
+
+#[test]
+fn auto_start_always_exposes_the_active_start_lens() {
+    let mut client = LspClient::start();
+    client.initialize_with_auto_start("always");
+    open_tour(&mut client, TWO_STEP_TOUR);
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "textDocument/codeLens",
+        "params": { "textDocument": { "uri": "file:///tours/example.tour.md" } },
+    }));
+
+    let (messages, response) = client.receive_until_result(2);
+    let methods: Vec<_> = messages
+        .iter()
+        .map(|message| message["method"].as_str().expect("server request method"))
+        .collect();
+    assert_eq!(
+        methods,
+        vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
+    );
+
+    let lenses = response["result"].as_array().expect("code lens array");
+    let titles: Vec<_> = lenses
+        .iter()
+        .map(|lens| lens["command"]["title"].as_str().expect("lens title"))
+        .collect();
+    assert_eq!(titles, vec!["■ Stop tour", "⟳ Restart | 1/2"]);
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "shutdown",
+        "params": null,
+    }));
+    let shutdown = client.receive();
+    assert_eq!(shutdown["id"], 3);
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null,
+    }));
+    assert!(client.wait_with_timeout().success());
+}
+
+#[test]
+fn auto_start_prompt_starts_after_confirmation() {
+    let mut client = LspClient::start();
+    client.initialize_with_auto_start("prompt");
+    open_tour(&mut client, TWO_STEP_TOUR);
+
+    let prompt = client.receive();
+    assert_eq!(prompt["method"], "window/showMessageRequest");
+    let actions: Vec<_> = prompt["params"]["actions"]
+        .as_array()
+        .expect("prompt actions")
+        .iter()
+        .map(|action| action["title"].as_str().expect("action title"))
+        .collect();
+    assert_eq!(actions, vec!["Start tour", "Not now"]);
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": prompt["id"].clone(),
+        "result": { "title": "Start tour" },
+    }));
+
+    let refreshes = [client.receive(), client.receive()];
+    let methods: Vec<_> = refreshes
+        .iter()
+        .map(|message| message["method"].as_str().expect("server request method"))
+        .collect();
+    assert_eq!(
+        methods,
+        vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
+    );
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "textDocument/codeLens",
+        "params": { "textDocument": { "uri": "file:///tours/example.tour.md" } },
+    }));
+    let (_, response) = client.receive_until_result(2);
+    let lenses = response["result"].as_array().expect("code lens array");
+    let titles: Vec<_> = lenses
+        .iter()
+        .map(|lens| lens["command"]["title"].as_str().expect("lens title"))
+        .collect();
+    assert_eq!(titles, vec!["■ Stop tour", "⟳ Restart | 1/2"]);
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "shutdown",
+        "params": null,
+    }));
+    let shutdown = client.receive();
+    assert_eq!(shutdown["id"], 3);
     client.send(json!({
         "jsonrpc": "2.0",
         "method": "exit",
