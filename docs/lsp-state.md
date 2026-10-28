@@ -50,9 +50,10 @@ case-sensitive.
 The extension returns the settings schema from both the initialization options
 schema hook and the workspace configuration schema hook. `lsp.tour.settings`
 uses the workspace configuration schema in Zed, while the initialization options
-schema documents the same options where they are passed to the server. Zed
-`0.7.0` does not expose either schema hook, so the extension API is pinned to the
-Zed revision used by `HANDOFF.md` until `0.8.0` is published.
+schema documents the same options where they are passed to the server. The
+`zed_extension_api` crate `0.7.0` does not expose either schema hook, so the
+extension API is pinned to the Zed revision used by `HANDOFF.md` until `0.8.0`
+is published.
 
 A first-class top-level `tour` settings section is out of scope. It would need a
 core settings or context-server-settings change.
@@ -84,8 +85,11 @@ Multiple-open policy:
 - A `didChange` for a tour that is not active is ignored.
 - A `didChange` for the active tour reparses it, preserves the running flag, and
   keeps the current step index when possible, clamping it to the new step count.
-- If parsing the newly opened or changed active tour fails, the active tour is
-  cleared so stale state cannot survive. The failure is logged to stderr.
+- If parsing a newly opened tour fails, the active tour is cleared so an invalid
+  new tour cannot revive stale state.
+- If parsing a `didChange` for the active tour fails, the last valid active tour
+  is kept and the failure is logged to stderr. The next valid change reparses and
+  updates the tour, so transient parse errors while typing do not strand it.
 
 Multi-workspace policy: there is one state per language server instance. The
 implementation assumes a single workspace per server. If one server is reused

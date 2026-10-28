@@ -138,6 +138,10 @@ impl TourState {
     /// replaces the active tour. When the active tour changes, its running flag
     /// and current step are preserved when possible, and the step index is
     /// clamped to the new step count.
+    ///
+    /// If the changed content cannot be parsed, the last valid active tour is
+    /// kept. This lets an in-progress edit fail transiently and recover on the
+    /// next valid change instead of stranding the tour until it is reopened.
     pub fn update_active_tour(
         &mut self,
         tour_uri: &Uri,
@@ -152,7 +156,6 @@ impl TourState {
 
         let current_step = active.current_step;
         let running = active.running;
-        self.active = None;
 
         let path = file_path(tour_uri).ok_or(OpenTourError::InvalidTourUri)?;
         let tour = parse_tour(&path, source).map_err(OpenTourError::Parse)?;
@@ -267,6 +270,32 @@ mod tests {
         assert_eq!(
             state.active().map(|active| active.tour_uri.as_str()),
             Some("file:///tours/first.tour.md")
+        );
+    }
+
+    #[test]
+    fn invalid_active_change_keeps_the_last_valid_tour() {
+        let mut state = TourState::default();
+        state
+            .open_tour(file_uri("file:///tours/first.tour.md"), FIRST_TOUR)
+            .expect("first tour should open");
+
+        let error = state
+            .update_active_tour(&file_uri("file:///tours/first.tour.md"), INVALID_TOUR)
+            .expect_err("invalid change should fail");
+
+        assert!(matches!(error, OpenTourError::Parse(_)));
+        let active = state.active().expect("last valid tour should be kept");
+        assert_eq!(active.tour.title, "First tour");
+        assert_eq!(active.current_step, 0);
+
+        let outcome = state
+            .update_active_tour(&file_uri("file:///tours/first.tour.md"), SECOND_TOUR)
+            .expect("the next valid change should recover");
+        assert_eq!(outcome, UpdateOutcome::Updated);
+        assert_eq!(
+            state.active().map(|active| active.tour.title.as_str()),
+            Some("Second tour")
         );
     }
 

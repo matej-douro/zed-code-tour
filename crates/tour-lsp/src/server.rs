@@ -133,6 +133,13 @@ impl TourServer {
         let Some(change) = params.content_changes.into_iter().last() else {
             return Ok(());
         };
+        if change.range.is_some() {
+            eprintln!(
+                "{SERVER_NAME}: ignoring incremental change for {}; full sync is advertised",
+                params.text_document.uri.as_str()
+            );
+            return Ok(());
+        }
 
         match self
             .state
@@ -209,6 +216,14 @@ mod tests {
     }
 
     fn did_change_notification(uri: &str, text: &str) -> lsp_server::Notification {
+        did_change_notification_with_range(uri, text, None)
+    }
+
+    fn did_change_notification_with_range(
+        uri: &str,
+        text: &str,
+        range: Option<Range>,
+    ) -> lsp_server::Notification {
         lsp_server::Notification::new(
             "textDocument/didChange".to_owned(),
             json!({
@@ -217,7 +232,7 @@ mod tests {
                     version: 2,
                 },
                 "contentChanges": [TextDocumentContentChangeEvent {
-                    range: None,
+                    range,
                     range_length: None,
                     text: text.to_owned(),
                 }],
@@ -299,6 +314,67 @@ mod tests {
                 "workspace/inlayHint/refresh".to_owned(),
                 "workspace/codeLens/refresh".to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn ignores_incremental_changes_and_recovers_after_a_bad_full_change() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(TourSettings::default());
+
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", TOUR),
+                &sender,
+            )
+            .expect("notification should be handled");
+        let _ = receiver.try_iter().count();
+
+        server
+            .handle_notification(
+                &did_change_notification_with_range(
+                    "file:///tours/example.tour.md",
+                    "incremental",
+                    Some(Range::new(Position::new(0, 0), Position::new(0, 1))),
+                ),
+                &sender,
+            )
+            .expect("incremental change should be ignored");
+        assert!(receiver.try_recv().is_err());
+
+        server
+            .handle_notification(
+                &did_change_notification(
+                    "file:///tours/example.tour.md",
+                    "# Bad\n\n## 1. Missing link\n",
+                ),
+                &sender,
+            )
+            .expect("bad change should be handled");
+        assert_eq!(
+            receiver.try_iter().count(),
+            2,
+            "a failed update still refreshes to remove stale overlays"
+        );
+        assert_eq!(
+            server
+                .state()
+                .active()
+                .map(|active| active.tour.title.as_str()),
+            Some("Tour"),
+            "the last valid tour should survive a transient parse failure"
+        );
+
+        server
+            .handle_notification(
+                &did_change_notification("file:///tours/example.tour.md", TOUR),
+                &sender,
+            )
+            .expect("valid change should recover");
+        assert_eq!(
+            receiver.try_iter().count(),
+            2,
+            "a recovered update refreshes hints and lenses"
         );
     }
 

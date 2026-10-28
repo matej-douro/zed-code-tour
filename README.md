@@ -90,7 +90,9 @@ Requirements:
 - Network access for the pinned Zed extension API git dependency. The schema
   hooks used by the extension are not in `zed_extension_api` 0.7.0, so the
   workspace pins the API to the Zed revision used by `HANDOFF.md` until 0.8.0 is
-  published.
+  published. The resulting extension uses extension API 0.8.0 WIT, so it needs a
+  Zed build whose extension host supports `since_v0_8_0` (Zed HEAD at the pinned
+  revision or newer). Older stable Zed releases cannot load it.
 - Zed for loading the extension as a dev extension.
 
 Build and test the workspace:
