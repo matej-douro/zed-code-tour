@@ -1,18 +1,23 @@
+use std::{collections::HashMap, fmt};
+
 use anyhow::{Context, Result};
 use crossbeam_channel::Sender;
 use lsp_server::{ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
     CodeLens, CodeLensOptions, CodeLensParams, Command, DidChangeTextDocumentParams,
-    DidOpenTextDocumentParams, ExecuteCommandOptions, ExecuteCommandParams, InitializeResult,
-    MessageActionItem, MessageType, OneOf, Position, Range, ServerCapabilities, ServerInfo,
-    ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, ExecuteCommandOptions,
+    ExecuteCommandParams, InitializeResult, MessageActionItem, MessageType, OneOf, Position, Range,
+    ServerCapabilities, ServerInfo, ShowDocumentResult, ShowMessageParams,
+    ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::{
+    navigation::{PositionError, show_document_params, tour_range_to_lsp},
     settings::{AutoStart, TourSettings},
     state::{TourState, UpdateOutcome},
-    uri::is_tour_document,
+    tour::TourRange,
+    uri::{file_path, file_uri, is_tour_document},
 };
 
 pub const SERVER_NAME: &str = "tour-lsp";
@@ -30,6 +35,8 @@ pub const TOUR_COMMANDS: &[&str] = &[
 const INLAY_HINT_REFRESH: &str = "workspace/inlayHint/refresh";
 const CODE_LENS_REFRESH: &str = "workspace/codeLens/refresh";
 const SHOW_MESSAGE_REQUEST: &str = "window/showMessageRequest";
+const SHOW_DOCUMENT: &str = "window/showDocument";
+const SHOW_MESSAGE: &str = "window/showMessage";
 const START_TOUR_ACTION: &str = "Start tour";
 const NOT_NOW_ACTION: &str = "Not now";
 
@@ -40,8 +47,13 @@ const STOP_COMMAND: &str = "tour.stop";
 pub struct TourServer {
     settings: TourSettings,
     state: TourState,
+    /// Open document text, including unsaved source buffers. Source text is
+    /// used to resolve exact UTF-16 columns; tour documents are cached too so
+    /// didClose removes every document uniformly.
+    documents: HashMap<Uri, String>,
     next_request_id: u64,
     pending_start_prompt: Option<RequestId>,
+    pending_show_documents: HashMap<RequestId, Uri>,
 }
 
 impl TourServer {
@@ -49,8 +61,10 @@ impl TourServer {
         Self {
             settings,
             state: TourState::default(),
+            documents: HashMap::new(),
             next_request_id: 0,
             pending_start_prompt: None,
+            pending_show_documents: HashMap::new(),
         }
     }
 
@@ -108,11 +122,20 @@ impl TourServer {
                 match serde_json::from_value::<ExecuteCommandParams>(request.params.clone()) {
                     Ok(params) => match self.execute_command(&params, sender) {
                         Ok(()) => Response::new_ok(request.id.clone(), json!(null)),
-                        Err(error) => Response::new_err(
-                            request.id.clone(),
-                            ErrorCode::InternalError as i32,
-                            format!("failed to execute tour command: {error:#}"),
-                        ),
+                        Err(error) => {
+                            let message = error.to_string();
+                            if let Err(send_error) = self.show_error(sender, &message) {
+                                eprintln!(
+                                    "{SERVER_NAME}: failed to report command error to the \
+                                     client: {send_error}"
+                                );
+                            }
+                            Response::new_err(
+                                request.id.clone(),
+                                ErrorCode::RequestFailed as i32,
+                                message,
+                            )
+                        }
                     },
                     Err(error) => invalid_params(
                         request,
@@ -130,13 +153,20 @@ impl TourServer {
 
     /// Handle a response to a request sent by the server.
     pub fn handle_response(&mut self, response: &Response, sender: &Sender<Message>) -> Result<()> {
+        if let Some(uri) = self.pending_show_documents.remove(&response.id) {
+            self.report_show_document_response(response, uri, sender)?;
+        }
+
         if self.pending_start_prompt.as_ref() != Some(&response.id) {
             return Ok(());
         }
         self.pending_start_prompt = None;
 
-        if response_action_title(response) == Some(START_TOUR_ACTION) && self.start_active_tour() {
-            self.refresh_all(sender)?;
+        if response_action_title(response) == Some(START_TOUR_ACTION) {
+            match self.start_active_tour(sender) {
+                Ok(_) => {}
+                Err(error) => self.show_error(sender, &error.to_string())?,
+            }
         }
         Ok(())
     }
@@ -160,6 +190,14 @@ impl TourServer {
                         .context("invalid textDocument/didChange params")?;
                 self.did_change(params, sender)
             }
+            "textDocument/didClose" => {
+                let params: DidCloseTextDocumentParams =
+                    serde_json::from_value(notification.params.clone())
+                        .context("invalid textDocument/didClose params")?;
+                self.documents.remove(&params.text_document.uri);
+                self.resolve_active_source_range();
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -170,17 +208,31 @@ impl TourServer {
         sender: &Sender<Message>,
     ) -> Result<()> {
         let document = params.text_document;
-        if !is_tour_document(&document.uri) {
+        let is_tour = is_tour_document(&document.uri);
+        self.documents
+            .insert(document.uri.clone(), document.text.clone());
+        if !is_tour {
+            self.resolve_active_source_range();
             return Ok(());
         }
 
         self.pending_start_prompt = None;
         match self.state.open_tour(document.uri, &document.text) {
-            Ok(()) => self.apply_auto_start(sender)?,
-            Err(error) => eprintln!("{SERVER_NAME}: failed to open tour: {error}"),
+            Ok(()) => {
+                self.resolve_active_source_range();
+                let starts_by_itself = self.settings.auto_start == AutoStart::Always;
+                self.apply_auto_start(sender)?;
+                if !starts_by_itself {
+                    self.refresh_all(sender)?;
+                }
+            }
+            Err(error) => {
+                eprintln!("{SERVER_NAME}: failed to open tour: {error}");
+                self.refresh_all(sender)?;
+            }
         }
 
-        self.refresh_all(sender)
+        Ok(())
     }
 
     fn did_change(
@@ -188,32 +240,200 @@ impl TourServer {
         params: DidChangeTextDocumentParams,
         sender: &Sender<Message>,
     ) -> Result<()> {
-        if !is_tour_document(&params.text_document.uri) {
-            return Ok(());
-        }
-
+        let uri = params.text_document.uri;
+        let is_tour = is_tour_document(&uri);
         let Some(change) = params.content_changes.into_iter().last() else {
             return Ok(());
         };
         if change.range.is_some() {
             eprintln!(
                 "{SERVER_NAME}: ignoring incremental change for {}; full sync is advertised",
-                params.text_document.uri.as_str()
+                uri.as_str()
             );
+            // Full sync is advertised, but if a client sends an incremental
+            // change anyway, drop the cached text instead of keeping stale
+            // source content. The next navigation falls back to disk.
+            self.documents.remove(&uri);
+            if !is_tour {
+                self.resolve_active_source_range();
+            }
             return Ok(());
         }
 
-        match self
-            .state
-            .update_active_tour(&params.text_document.uri, &change.text)
-        {
+        self.documents.insert(uri.clone(), change.text.clone());
+        if !is_tour {
+            self.resolve_active_source_range();
+            return Ok(());
+        }
+
+        match self.state.update_active_tour(&uri, &change.text) {
             Ok(UpdateOutcome::Ignored) => Ok(()),
-            Ok(UpdateOutcome::Updated) => self.refresh_all(sender),
+            Ok(UpdateOutcome::Updated) => {
+                self.resolve_active_source_range();
+                self.refresh_all(sender)
+            }
             Err(error) => {
                 eprintln!("{SERVER_NAME}: failed to update active tour: {error}");
                 self.refresh_all(sender)
             }
         }
+    }
+
+    fn current_step_and_count(&self) -> std::result::Result<(usize, usize), CommandError> {
+        let active = self.state.active().ok_or(CommandError::NoActiveTour)?;
+        Ok((active.current_step, active.step_count()))
+    }
+
+    /// Select a step, resolve its exact UTF-16 range from the source document,
+    /// then ask the client to show it and refresh both overlays.
+    ///
+    /// Source loading and range conversion happen before the step index is
+    /// changed, so a missing file or an out-of-range column leaves the current
+    /// selection and running state untouched.
+    fn select_step(
+        &mut self,
+        step: usize,
+        running: Option<bool>,
+        sender: &Sender<Message>,
+    ) -> std::result::Result<(), CommandError> {
+        let (source_uri, tour_range) = self.target_for_step(step)?;
+        let source_text = self.source_text(&source_uri)?;
+        let range = tour_range_to_lsp(&source_text, tour_range)?;
+
+        {
+            let active = self.state.active_mut().ok_or(CommandError::NoActiveTour)?;
+            if !active.set_current_step(step) {
+                return Err(CommandError::StepOutOfRange {
+                    step,
+                    step_count: active.step_count(),
+                });
+            }
+            active.source_range = Some(range);
+            if let Some(running) = running {
+                active.running = running;
+            }
+        }
+
+        self.send_show_document(source_uri, range, sender)?;
+        self.refresh_all(sender)
+            .map_err(|error| CommandError::Internal(error.to_string()))
+    }
+
+    fn target_for_step(&self, step: usize) -> std::result::Result<(Uri, TourRange), CommandError> {
+        let active = self.state.active().ok_or(CommandError::NoActiveTour)?;
+        let tour_step = active
+            .tour
+            .steps
+            .get(step)
+            .ok_or(CommandError::StepOutOfRange {
+                step,
+                step_count: active.step_count(),
+            })?;
+        let uri = file_uri(&tour_step.target.path).ok_or_else(|| {
+            CommandError::UnsupportedTarget(tour_step.target.path.display().to_string())
+        })?;
+
+        Ok((uri, tour_step.target.range))
+    }
+
+    fn current_target(&self) -> Option<(Uri, TourRange)> {
+        let active = self.state.active()?;
+        let step = active.current_step()?;
+        Some((file_uri(&step.target.path)?, step.target.range))
+    }
+
+    /// Recompute the active step's LSP range from current source text. State
+    /// stores the source URI and the range, but navigation is the only producer
+    /// of the UTF-16 range so stale naive columns cannot leak into overlays.
+    fn resolve_active_source_range(&mut self) {
+        let Some((uri, tour_range)) = self.current_target() else {
+            return;
+        };
+        let Ok(text) = self.source_text(&uri) else {
+            return;
+        };
+        let Ok(range) = tour_range_to_lsp(&text, tour_range) else {
+            return;
+        };
+        if let Some(active) = self.state.active_mut() {
+            active.source_range = Some(range);
+        }
+    }
+
+    fn source_text(&self, uri: &Uri) -> std::result::Result<String, CommandError> {
+        if let Some(text) = self.documents.get(uri) {
+            return Ok(text.clone());
+        }
+
+        let path =
+            file_path(uri).ok_or_else(|| CommandError::UnsupportedTarget(uri.to_string()))?;
+        std::fs::read_to_string(&path).map_err(|error| CommandError::UnreadableSource {
+            uri: uri.to_string(),
+            reason: error.to_string(),
+        })
+    }
+
+    fn send_show_document(
+        &mut self,
+        uri: Uri,
+        range: Range,
+        sender: &Sender<Message>,
+    ) -> std::result::Result<(), CommandError> {
+        self.next_request_id += 1;
+        let id = RequestId::from(format!("tour-show-document-{}", self.next_request_id));
+        let params = serde_json::to_value(show_document_params(uri.clone(), range))
+            .map_err(|error| CommandError::Internal(error.to_string()))?;
+        sender
+            .send(Message::Request(Request::new(
+                id.clone(),
+                SHOW_DOCUMENT.to_owned(),
+                params,
+            )))
+            .map_err(|error| CommandError::Internal(error.to_string()))?;
+        self.pending_show_documents.insert(id, uri);
+        Ok(())
+    }
+
+    fn report_show_document_response(
+        &self,
+        response: &Response,
+        uri: Uri,
+        sender: &Sender<Message>,
+    ) -> Result<()> {
+        match &response.response_result {
+            Ok(value) => {
+                let success = serde_json::from_value::<ShowDocumentResult>(value.clone())
+                    .map(|result| result.success)
+                    .unwrap_or(false);
+                if !success {
+                    self.show_error(
+                        sender,
+                        &format!("Zed could not show tour target `{}`", uri.as_str()),
+                    )?;
+                }
+            }
+            Err(error) => self.show_error(
+                sender,
+                &format!(
+                    "Zed could not show tour target `{}`: {}",
+                    uri.as_str(),
+                    error.message
+                ),
+            )?,
+        }
+        Ok(())
+    }
+
+    fn show_error(&self, sender: &Sender<Message>, message: &str) -> Result<()> {
+        let params = ShowMessageParams {
+            typ: MessageType::ERROR,
+            message: message.to_owned(),
+        };
+        sender.send(Message::Notification(Notification::new(
+            SHOW_MESSAGE.to_owned(),
+            params,
+        )))?;
+        Ok(())
     }
 
     fn code_lenses_for(&self, params: &CodeLensParams) -> Vec<CodeLens> {
@@ -253,10 +473,54 @@ impl TourServer {
         &mut self,
         params: &ExecuteCommandParams,
         sender: &Sender<Message>,
-    ) -> Result<()> {
+    ) -> std::result::Result<(), CommandError> {
         match params.command.as_str() {
-            "tour.start" if self.start_active_tour() => self.refresh_all(sender)?,
-            "tour.stop" if self.stop_active_tour() => self.refresh_all(sender)?,
+            "tour.start" => {
+                self.start_active_tour(sender)?;
+            }
+            "tour.stop" => {
+                if self.stop_active_tour() {
+                    self.refresh_all(sender)
+                        .map_err(|error| CommandError::Internal(error.to_string()))?;
+                }
+            }
+            "tour.next" => {
+                let (step, step_count) = self.current_step_and_count()?;
+                if step_count == 0 {
+                    return Err(CommandError::NoSteps);
+                }
+                let next = step.saturating_add(1);
+                if next < step_count {
+                    self.select_step(next, None, sender)?;
+                }
+            }
+            "tour.previous" => {
+                let (step, step_count) = self.current_step_and_count()?;
+                if step_count == 0 {
+                    return Err(CommandError::NoSteps);
+                }
+                if step > 0 {
+                    self.select_step(step - 1, None, sender)?;
+                }
+            }
+            "tour.goto" => {
+                let step = params
+                    .arguments
+                    .first()
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| {
+                        CommandError::InvalidArguments(
+                            "tour.goto expects a zero-based step index as its first argument"
+                                .to_owned(),
+                        )
+                    })?;
+                let step = usize::try_from(step).map_err(|_| {
+                    CommandError::InvalidArguments(
+                        "tour.goto step index does not fit in this platform".to_owned(),
+                    )
+                })?;
+                self.select_step(step, None, sender)?;
+            }
             _ => {}
         }
         Ok(())
@@ -265,7 +529,10 @@ impl TourServer {
     fn apply_auto_start(&mut self, sender: &Sender<Message>) -> Result<()> {
         match self.settings.auto_start {
             AutoStart::Always => {
-                self.start_active_tour();
+                if let Err(error) = self.start_active_tour(sender) {
+                    self.show_error(sender, &error.to_string())?;
+                    self.refresh_all(sender)?;
+                }
             }
             AutoStart::Prompt => self.send_start_prompt(sender)?,
             AutoStart::Never => {}
@@ -305,15 +572,24 @@ impl TourServer {
         Ok(())
     }
 
-    fn start_active_tour(&mut self) -> bool {
-        let Some(active) = self.state.active_mut() else {
-            return false;
+    fn start_active_tour(
+        &mut self,
+        sender: &Sender<Message>,
+    ) -> std::result::Result<bool, CommandError> {
+        let Some(active) = self.state.active() else {
+            return Ok(false);
         };
-        active.running = true;
-        if active.step_count() > 0 {
-            active.set_current_step(0);
+        if active.step_count() == 0 {
+            if let Some(active) = self.state.active_mut() {
+                active.running = true;
+            }
+            self.refresh_all(sender)
+                .map_err(|error| CommandError::Internal(error.to_string()))?;
+            return Ok(true);
         }
-        true
+
+        self.select_step(0, Some(true), sender)?;
+        Ok(true)
     }
 
     fn stop_active_tour(&mut self) -> bool {
@@ -377,6 +653,50 @@ fn invalid_params(request: &Request, message: String) -> Response {
     Response::new_err(request.id.clone(), ErrorCode::InvalidParams as i32, message)
 }
 
+/// Errors returned by tour commands. They are both reported to the client as a
+/// `window/showMessage` notification and returned as the command response.
+#[derive(Debug)]
+enum CommandError {
+    NoActiveTour,
+    NoSteps,
+    InvalidArguments(String),
+    StepOutOfRange { step: usize, step_count: usize },
+    UnsupportedTarget(String),
+    UnreadableSource { uri: String, reason: String },
+    Position(PositionError),
+    Internal(String),
+}
+
+impl fmt::Display for CommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoActiveTour => f.write_str("no tour is active"),
+            Self::NoSteps => f.write_str("the active tour has no steps"),
+            Self::InvalidArguments(message) => f.write_str(message),
+            Self::StepOutOfRange { step, step_count } => write!(
+                f,
+                "step index {step} is outside the active tour, which has {step_count} step(s)"
+            ),
+            Self::UnsupportedTarget(target) => {
+                write!(f, "tour target `{target}` is not a local file URI")
+            }
+            Self::UnreadableSource { uri, reason } => {
+                write!(f, "cannot read tour target `{uri}`: {reason}")
+            }
+            Self::Position(error) => write!(f, "tour target range is invalid: {error}"),
+            Self::Internal(message) => f.write_str(message),
+        }
+    }
+}
+
+impl From<PositionError> for CommandError {
+    fn from(error: PositionError) -> Self {
+        Self::Position(error)
+    }
+}
+
+impl std::error::Error for CommandError {}
+
 #[cfg(test)]
 mod tests {
     use lsp_server::{Message, Request, RequestId, Response};
@@ -384,7 +704,7 @@ mod tests {
         Position, Range, ShowMessageRequestParams, TextDocumentContentChangeEvent,
         TextDocumentItem, VersionedTextDocumentIdentifier,
     };
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::{TOUR_COMMANDS, TourServer};
     use crate::settings::{AutoStart, TourSettings};
@@ -425,6 +745,83 @@ mod tests {
             "workspace/executeCommand".to_owned(),
             json!({ "command": command }),
         )
+    }
+
+    fn execute_command_request_with_arguments(
+        id: i32,
+        command: &str,
+        arguments: Vec<Value>,
+    ) -> Request {
+        Request::new(
+            RequestId::from(id),
+            "workspace/executeCommand".to_owned(),
+            json!({
+                "command": command,
+                "arguments": arguments,
+            }),
+        )
+    }
+
+    fn drain_server_requests(
+        receiver: &crossbeam_channel::Receiver<Message>,
+    ) -> Vec<(RequestId, String, Value)> {
+        receiver
+            .try_iter()
+            .map(|message| match message {
+                Message::Request(request) => (request.id, request.method, request.params),
+                other => panic!("unexpected message: {other:?}"),
+            })
+            .collect()
+    }
+
+    fn assert_command_ok(response: &Response) {
+        match &response.response_result {
+            Ok(value) => assert_eq!(value, &json!(null)),
+            Err(error) => panic!("command failed: {error:?}"),
+        }
+    }
+
+    fn assert_show_document(
+        requests: &[(RequestId, String, Value)],
+        uri: &str,
+        start: (u32, u32),
+        end: (u32, u32),
+    ) {
+        let (_, method, params) = requests
+            .iter()
+            .find(|(_, method, _)| method == "window/showDocument")
+            .expect("missing window/showDocument request");
+        assert_eq!(method, "window/showDocument");
+        assert_eq!(
+            params,
+            &json!({
+                "uri": uri,
+                "external": false,
+                "takeFocus": true,
+                "selection": {
+                    "start": {
+                        "line": start.0,
+                        "character": start.1,
+                    },
+                    "end": {
+                        "line": end.0,
+                        "character": end.1,
+                    },
+                },
+            })
+        );
+    }
+
+    fn assert_refreshes(requests: &[(RequestId, String, Value)]) {
+        let refresh_methods: Vec<_> = requests
+            .iter()
+            .filter(|(_, method, _)| method.contains("/refresh"))
+            .map(|(_, method, _)| method.as_str())
+            .collect();
+        assert_eq!(
+            refresh_methods,
+            vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
+        );
     }
 
     fn request_methods(messages: impl IntoIterator<Item = Message>) -> Vec<String> {
@@ -483,6 +880,20 @@ mod tests {
                 },
             }),
         )
+    }
+
+    fn open_navigation_sources(
+        server: &mut TourServer,
+        sender: &crossbeam_channel::Sender<Message>,
+    ) {
+        for (uri, text) in [
+            ("file:///tours/src/main.rs", "a\nline two long\n"),
+            ("file:///tours/src/router.rs", "a\nb\nc\nlong enough\n"),
+        ] {
+            server
+                .handle_notification(&did_open_notification(uri, text), sender)
+                .expect("source should open");
+        }
     }
 
     fn did_change_notification(uri: &str, text: &str) -> lsp_server::Notification {
@@ -553,6 +964,12 @@ mod tests {
         let (sender, receiver) = crossbeam_channel::unbounded();
         let mut server = TourServer::new(settings(AutoStart::Never));
 
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/src/main.rs", "a\nline two long\n"),
+                &sender,
+            )
+            .expect("source should open");
         server
             .handle_notification(
                 &did_open_notification("file:///tours/example.tour.md", TOUR),
@@ -639,6 +1056,7 @@ mod tests {
         let mut server = TourServer::new(settings(AutoStart::Never));
         let tour_uri = "file:///tours/example.tour.md";
 
+        open_navigation_sources(&mut server, &sender);
         server
             .handle_notification(&did_open_notification(tour_uri, TWO_STEP_TOUR), &sender)
             .expect("notification should be handled");
@@ -652,6 +1070,7 @@ mod tests {
         assert_eq!(
             request_methods(receiver.try_iter()),
             vec![
+                "window/showDocument".to_owned(),
                 "workspace/inlayHint/refresh".to_owned(),
                 "workspace/codeLens/refresh".to_owned(),
             ]
@@ -687,7 +1106,7 @@ mod tests {
         let active = server.state().active().expect("tour is active");
         assert!(active.running);
         assert_eq!(active.current_step, 0);
-        assert_eq!(receiver.try_iter().count(), 2);
+        assert_eq!(receiver.try_iter().count(), 3);
 
         let stop = server.handle_request(&execute_command_request(5, "tour.stop"), &sender);
         assert!(stop.response_result.is_ok());
@@ -723,6 +1142,8 @@ mod tests {
         let (sender, receiver) = crossbeam_channel::unbounded();
         let mut server = TourServer::new(settings(AutoStart::Always));
 
+        open_navigation_sources(&mut server, &sender);
+        let _ = receiver.try_iter().count();
         server
             .handle_notification(
                 &did_open_notification("file:///tours/example.tour.md", TWO_STEP_TOUR),
@@ -736,6 +1157,7 @@ mod tests {
         assert_eq!(
             request_methods(receiver.try_iter()),
             vec![
+                "window/showDocument".to_owned(),
                 "workspace/inlayHint/refresh".to_owned(),
                 "workspace/codeLens/refresh".to_owned(),
             ]
@@ -769,6 +1191,8 @@ mod tests {
         let (sender, receiver) = crossbeam_channel::unbounded();
         let mut server = TourServer::new(settings(AutoStart::Prompt));
 
+        open_navigation_sources(&mut server, &sender);
+        let _ = receiver.try_iter().count();
         server
             .handle_notification(
                 &did_open_notification("file:///tours/example.tour.md", TWO_STEP_TOUR),
@@ -817,6 +1241,7 @@ mod tests {
         assert_eq!(
             request_methods(receiver.try_iter()),
             vec![
+                "window/showDocument".to_owned(),
                 "workspace/inlayHint/refresh".to_owned(),
                 "workspace/codeLens/refresh".to_owned(),
             ]
@@ -986,5 +1411,351 @@ mod tests {
                 .map(|active| active.tour_uri.as_str()),
             Some("file:///tours/first.tour.md")
         );
+    }
+
+    #[test]
+    fn selects_exact_utf16_ranges_on_start_and_step_transitions() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+        let source = "let 😀 = 1;\nlet café = 2;\n";
+        let tour = r#"# Tour
+
+## 1. Emoji
+[emoji](src/main.rs#L1:5-L1:6)
+
+## 2. Accent
+[accent](src/main.rs#L2:5-L2:8)
+
+## 3. Span
+[span](src/main.rs#L1:9-L2:3)
+"#;
+
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/src/main.rs", source),
+                &sender,
+            )
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", tour),
+                &sender,
+            )
+            .expect("tour should open");
+        assert_eq!(receiver.try_iter().count(), 2);
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(2, "tour.start", Vec::new()),
+            &sender,
+        );
+        assert_command_ok(&response);
+        let requests = drain_server_requests(&receiver);
+        assert_show_document(&requests, "file:///tours/src/main.rs", (0, 4), (0, 6));
+        assert_refreshes(&requests);
+
+        let active = server.state().active().expect("tour is active");
+        assert!(active.running);
+        assert_eq!(active.current_step, 0);
+        assert_eq!(
+            active.source_range,
+            Some(Range::new(Position::new(0, 4), Position::new(0, 6)))
+        );
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(3, "tour.next", Vec::new()),
+            &sender,
+        );
+        assert_command_ok(&response);
+        let requests = drain_server_requests(&receiver);
+        assert_show_document(&requests, "file:///tours/src/main.rs", (1, 4), (1, 7));
+        assert_refreshes(&requests);
+        assert_eq!(
+            server.state().active().map(|active| active.current_step),
+            Some(1)
+        );
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(4, "tour.next", Vec::new()),
+            &sender,
+        );
+        assert_command_ok(&response);
+        let requests = drain_server_requests(&receiver);
+        assert_show_document(&requests, "file:///tours/src/main.rs", (0, 9), (1, 2));
+        assert_refreshes(&requests);
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(5, "tour.next", Vec::new()),
+            &sender,
+        );
+        assert_command_ok(&response);
+        assert!(drain_server_requests(&receiver).is_empty());
+        assert_eq!(
+            server.state().active().map(|active| active.current_step),
+            Some(2),
+            "next at the last step is a no-op"
+        );
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(6, "tour.previous", Vec::new()),
+            &sender,
+        );
+        assert_command_ok(&response);
+        let requests = drain_server_requests(&receiver);
+        assert_show_document(&requests, "file:///tours/src/main.rs", (1, 4), (1, 7));
+        assert_eq!(
+            server.state().active().map(|active| active.current_step),
+            Some(1)
+        );
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(7, "tour.goto", vec![json!(0)]),
+            &sender,
+        );
+        assert_command_ok(&response);
+        let requests = drain_server_requests(&receiver);
+        assert_show_document(&requests, "file:///tours/src/main.rs", (0, 4), (0, 6));
+        assert_eq!(
+            server.state().active().map(|active| active.current_step),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn source_range_stays_utf16_correct_after_a_tour_change() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+        let source = "let 😀 = 1;\n";
+        let tour = "# Tour\n\n## 1. Emoji\n[emoji](src/main.rs#L1:5-L1:6)\n";
+
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/src/main.rs", source),
+                &sender,
+            )
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", tour),
+                &sender,
+            )
+            .expect("tour should open");
+        let _ = receiver.try_iter().count();
+
+        assert_eq!(
+            server
+                .state()
+                .active()
+                .and_then(|active| active.source_range),
+            Some(Range::new(Position::new(0, 4), Position::new(0, 6)))
+        );
+
+        server
+            .handle_notification(
+                &did_change_notification("file:///tours/example.tour.md", tour),
+                &sender,
+            )
+            .expect("tour change should be handled");
+        let _ = receiver.try_iter().count();
+
+        assert_eq!(
+            server
+                .state()
+                .active()
+                .and_then(|active| active.source_range),
+            Some(Range::new(Position::new(0, 4), Position::new(0, 6))),
+            "a reparse must not replace the UTF-16 range with a naive column range"
+        );
+    }
+
+    #[test]
+    fn missing_source_and_invalid_ranges_report_errors_without_moving() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+        let tour = r#"# Tour
+
+## 1. Available
+[available](src/main.rs#L1:1-L1:4)
+
+## 2. Missing
+[missing](src/missing.rs#L1:1-L1:2)
+
+## 3. Bad column
+[bad](src/main.rs#L1:99-L1:99)
+"#;
+
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/src/main.rs", "abc\n"),
+                &sender,
+            )
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", tour),
+                &sender,
+            )
+            .expect("tour should open");
+        assert_eq!(receiver.try_iter().count(), 2);
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(2, "tour.start", Vec::new()),
+            &sender,
+        );
+        assert_command_ok(&response);
+        assert_refreshes(&drain_server_requests(&receiver));
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(3, "tour.next", Vec::new()),
+            &sender,
+        );
+        let error = response
+            .response_result
+            .expect_err("missing source should fail");
+        assert_eq!(error.code, -32803);
+        assert!(error.message.contains("missing.rs"), "{error:?}");
+        assert!(
+            error.message.contains("cannot read tour target"),
+            "{error:?}"
+        );
+        assert_eq!(
+            server.state().active().map(|active| active.current_step),
+            Some(0),
+            "a failed transition must not move the active step"
+        );
+        assert_eq!(
+            server.state().active().map(|active| active.running),
+            Some(true),
+            "a failed transition must not change the running state"
+        );
+        let messages: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(messages.len(), 1, "only the error message is sent");
+        match &messages[0] {
+            Message::Notification(notification) => {
+                assert_eq!(notification.method, "window/showMessage");
+                assert_eq!(notification.params["type"], json!(1));
+                assert!(
+                    notification.params["message"]
+                        .as_str()
+                        .expect("message text")
+                        .contains("cannot read tour target")
+                );
+            }
+            other => panic!("unexpected message: {other:?}"),
+        }
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(4, "tour.goto", vec![json!(2)]),
+            &sender,
+        );
+        let error = response
+            .response_result
+            .expect_err("bad column should fail");
+        assert_eq!(error.code, -32803);
+        assert!(error.message.contains("tour column 99"), "{error:?}");
+        assert!(error.message.contains("line 1"), "{error:?}");
+        assert!(receiver.try_iter().all(|message| matches!(
+            message,
+            Message::Notification(notification) if notification.method == "window/showMessage"
+        )));
+        assert_eq!(
+            server.state().active().map(|active| active.current_step),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn reports_client_side_show_document_failures() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/src/main.rs", "abc\nline two long\n"),
+                &sender,
+            )
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", TOUR),
+                &sender,
+            )
+            .expect("tour should open");
+        let _ = receiver.try_iter().count();
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(2, "tour.start", Vec::new()),
+            &sender,
+        );
+        assert_command_ok(&response);
+        let requests = drain_server_requests(&receiver);
+        let show_document_id = requests
+            .iter()
+            .find(|(_, method, _)| method == "window/showDocument")
+            .expect("missing showDocument")
+            .0
+            .clone();
+
+        server
+            .handle_response(
+                &Response::new_ok(show_document_id, json!({ "success": false })),
+                &sender,
+            )
+            .expect("showDocument response should be handled");
+
+        let messages: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(messages.len(), 1);
+        match &messages[0] {
+            Message::Notification(notification) => {
+                assert_eq!(notification.method, "window/showMessage");
+                assert_eq!(notification.params["type"], json!(1));
+                assert!(
+                    notification.params["message"]
+                        .as_str()
+                        .expect("message text")
+                        .contains("could not show tour target")
+                );
+            }
+            other => panic!("unexpected message: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_goto_arguments_and_out_of_range_steps() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", TOUR),
+                &sender,
+            )
+            .expect("tour should open");
+        assert_eq!(receiver.try_iter().count(), 2);
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(2, "tour.goto", Vec::new()),
+            &sender,
+        );
+        let error = response
+            .response_result
+            .expect_err("goto needs an argument");
+        assert!(error.message.contains("zero-based step index"), "{error:?}");
+
+        let response = server.handle_request(
+            &execute_command_request_with_arguments(3, "tour.goto", vec![json!(7)]),
+            &sender,
+        );
+        let error = response
+            .response_result
+            .expect_err("goto out of range should fail");
+        assert!(error.message.contains("step index 7"), "{error:?}");
+        assert_eq!(
+            server.state().active().map(|active| active.current_step),
+            Some(0)
+        );
+        assert!(receiver.try_iter().all(|message| matches!(
+            message,
+            Message::Notification(notification) if notification.method == "window/showMessage"
+        )));
     }
 }

@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use lsp_types::{Position, Range};
-
 /// A parsed `.tour.md` document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tour {
@@ -59,25 +57,11 @@ pub struct TourPosition {
     pub column: u32,
 }
 
-impl TourPosition {
-    /// Convert to the 0-based position used by LSP.
-    pub fn to_lsp_position(self) -> Position {
-        Position::new(self.line.saturating_sub(1), self.column.saturating_sub(1))
-    }
-}
-
 /// A 1-based start/end range from a `#L<line>:<column>-L<line>:<column>` fragment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TourRange {
     pub start: TourPosition,
     pub end: TourPosition,
-}
-
-impl TourRange {
-    /// Convert to the 0-based range used by LSP.
-    pub fn to_lsp_range(self) -> Range {
-        Range::new(self.start.to_lsp_position(), self.end.to_lsp_position())
-    }
 }
 
 fn first_paragraph(body: &str) -> &str {

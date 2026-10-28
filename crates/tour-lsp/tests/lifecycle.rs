@@ -295,6 +295,30 @@ fn refreshes_hints_and_lenses_for_tour_documents_only() {
     assert!(client.wait_with_timeout().success());
 }
 
+fn open_source(client: &mut LspClient, uri: &str, text: &str) {
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": uri,
+                "languageId": "Rust",
+                "version": 1,
+                "text": text,
+            },
+        },
+    }));
+}
+
+fn open_navigation_sources(client: &mut LspClient) {
+    open_source(
+        client,
+        "file:///tours/src/main.rs",
+        "line one long enough\n",
+    );
+    open_source(client, "file:///tours/src/router.rs", "a\nlong enough\n");
+}
+
 fn open_tour(client: &mut LspClient, text: &str) {
     client.send(json!({
         "jsonrpc": "2.0",
@@ -316,6 +340,7 @@ const TWO_STEP_TOUR: &str = "# Tour\n\n## 1. Entry\n[entry](src/main.rs#L1:1-L1:
 fn auto_start_always_exposes_the_active_start_lens() {
     let mut client = LspClient::start();
     client.initialize_with_auto_start("always");
+    open_navigation_sources(&mut client);
     open_tour(&mut client, TWO_STEP_TOUR);
 
     client.send(json!({
@@ -332,7 +357,11 @@ fn auto_start_always_exposes_the_active_start_lens() {
         .collect();
     assert_eq!(
         methods,
-        vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
+        vec![
+            "window/showDocument",
+            "workspace/inlayHint/refresh",
+            "workspace/codeLens/refresh",
+        ]
     );
 
     let lenses = response["result"].as_array().expect("code lens array");
@@ -362,6 +391,7 @@ fn auto_start_always_exposes_the_active_start_lens() {
 fn auto_start_prompt_starts_after_confirmation() {
     let mut client = LspClient::start();
     client.initialize_with_auto_start("prompt");
+    open_navigation_sources(&mut client);
     open_tour(&mut client, TWO_STEP_TOUR);
 
     let prompt = client.receive();
@@ -374,20 +404,34 @@ fn auto_start_prompt_starts_after_confirmation() {
         .collect();
     assert_eq!(actions, vec!["Start tour", "Not now"]);
 
+    let initial = [client.receive(), client.receive()];
+    let initial_methods: Vec<_> = initial
+        .iter()
+        .map(|message| message["method"].as_str().expect("server request method"))
+        .collect();
+    assert_eq!(
+        initial_methods,
+        vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
+    );
+
     client.send(json!({
         "jsonrpc": "2.0",
         "id": prompt["id"].clone(),
         "result": { "title": "Start tour" },
     }));
 
-    let refreshes = [client.receive(), client.receive()];
-    let methods: Vec<_> = refreshes
+    let after_start = [client.receive(), client.receive(), client.receive()];
+    let methods: Vec<_> = after_start
         .iter()
         .map(|message| message["method"].as_str().expect("server request method"))
         .collect();
     assert_eq!(
         methods,
-        vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
+        vec![
+            "window/showDocument",
+            "workspace/inlayHint/refresh",
+            "workspace/codeLens/refresh",
+        ]
     );
 
     client.send(json!({
@@ -412,6 +456,107 @@ fn auto_start_prompt_starts_after_confirmation() {
     }));
     let shutdown = client.receive();
     assert_eq!(shutdown["id"], 3);
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null,
+    }));
+    assert!(client.wait_with_timeout().success());
+}
+
+#[test]
+fn navigation_commands_select_exact_utf16_ranges() {
+    let mut client = LspClient::start();
+    client.initialize_with_auto_start("never");
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": "file:///tours/src/main.rs",
+                "languageId": "Rust",
+                "version": 1,
+                "text": "let 😀 = 1;\n",
+            },
+        },
+    }));
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": "file:///tours/example.tour.md",
+                "languageId": "Tour",
+                "version": 1,
+                "text": "# Tour\n\n## 1. Emoji\n[emoji](src/main.rs#L1:5-L1:6)\n",
+            },
+        },
+    }));
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "workspace/executeCommand",
+        "params": {
+            "command": "tour.start",
+            "arguments": [],
+        },
+    }));
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "shutdown",
+        "params": null,
+    }));
+
+    let messages = client.receive_until_response(3);
+    let execute_response = messages
+        .iter()
+        .find(|message| message["id"] == json!(2))
+        .expect("missing executeCommand response");
+    assert_eq!(execute_response["result"], Value::Null);
+
+    let show_document = messages
+        .iter()
+        .find(|message| message["method"] == json!("window/showDocument"))
+        .expect("missing window/showDocument request");
+    assert_eq!(
+        show_document["params"],
+        json!({
+            "uri": "file:///tours/src/main.rs",
+            "external": false,
+            "takeFocus": true,
+            "selection": {
+                "start": {
+                    "line": 0,
+                    "character": 4,
+                },
+                "end": {
+                    "line": 0,
+                    "character": 6,
+                },
+            },
+        })
+    );
+
+    let methods: Vec<_> = messages
+        .iter()
+        .filter_map(|message| message["method"].as_str())
+        .collect();
+    assert_eq!(
+        methods,
+        vec![
+            "workspace/inlayHint/refresh",
+            "workspace/codeLens/refresh",
+            "window/showDocument",
+            "workspace/inlayHint/refresh",
+            "workspace/codeLens/refresh",
+        ]
+    );
+
     client.send(json!({
         "jsonrpc": "2.0",
         "method": "exit",
