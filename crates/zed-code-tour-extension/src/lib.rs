@@ -79,6 +79,19 @@ impl zed::Extension for CodeTourExtension {
         Ok(settings.settings)
     }
 
+    fn language_server_workspace_configuration(
+        &mut self,
+        language_server_id: &LanguageServerId,
+        worktree: &Worktree,
+    ) -> Result<Option<Value>> {
+        if !Self::is_tour_server(language_server_id) {
+            return Ok(None);
+        }
+
+        let settings = LspSettings::for_worktree(TOUR_LANGUAGE_SERVER_ID, worktree)?;
+        Ok(settings.settings)
+    }
+
     fn language_server_initialization_options_schema(
         &mut self,
         language_server_id: &LanguageServerId,

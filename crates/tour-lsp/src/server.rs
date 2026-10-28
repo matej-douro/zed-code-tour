@@ -4,15 +4,17 @@ use anyhow::{Context, Result};
 use crossbeam_channel::Sender;
 use lsp_server::{ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
-    CodeLens, CodeLensOptions, CodeLensParams, Command, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, ExecuteCommandOptions,
-    ExecuteCommandParams, InitializeResult, MessageActionItem, MessageType, OneOf, Position, Range,
-    ServerCapabilities, ServerInfo, ShowDocumentResult, ShowMessageParams,
-    ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    CodeLens, CodeLensOptions, CodeLensParams, Command, DidChangeConfigurationParams,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    ExecuteCommandOptions, ExecuteCommandParams, InitializeResult, InlayHint, InlayHintParams,
+    MessageActionItem, MessageType, OneOf, Position, Range, ServerCapabilities, ServerInfo,
+    ShowDocumentResult, ShowMessageParams, ShowMessageRequestParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Uri,
 };
 use serde_json::{Value, json};
 
 use crate::{
+    hint::body_hint,
     navigation::{PositionError, show_document_params, tour_range_to_lsp},
     settings::{AutoStart, TourSettings},
     state::{TourState, UpdateOutcome},
@@ -107,6 +109,15 @@ impl TourServer {
     /// Handle a client request and return its response.
     pub fn handle_request(&mut self, request: &Request, sender: &Sender<Message>) -> Response {
         match request.method.as_str() {
+            "textDocument/inlayHint" => {
+                match serde_json::from_value::<InlayHintParams>(request.params.clone()) {
+                    Ok(params) => Response::new_ok(request.id.clone(), self.inlay_hints(&params)),
+                    Err(error) => invalid_params(
+                        request,
+                        format!("invalid textDocument/inlayHint params: {error}"),
+                    ),
+                }
+            }
             "textDocument/codeLens" => {
                 match serde_json::from_value::<CodeLensParams>(request.params.clone()) {
                     Ok(params) => {
@@ -194,9 +205,18 @@ impl TourServer {
                 let params: DidCloseTextDocumentParams =
                     serde_json::from_value(notification.params.clone())
                         .context("invalid textDocument/didClose params")?;
-                self.documents.remove(&params.text_document.uri);
-                self.resolve_active_source_range();
-                Ok(())
+                self.did_close(params, sender)
+            }
+            "workspace/didChangeConfiguration" => {
+                let params: DidChangeConfigurationParams =
+                    serde_json::from_value(notification.params.clone())
+                        .context("invalid workspace/didChangeConfiguration params")?;
+                let settings = settings_from_configuration(&params.settings, self.settings);
+                if settings == self.settings {
+                    return Ok(());
+                }
+                self.settings = settings;
+                self.refresh_all(sender)
             }
             _ => Ok(()),
         }
@@ -209,10 +229,14 @@ impl TourServer {
     ) -> Result<()> {
         let document = params.text_document;
         let is_tour = is_tour_document(&document.uri);
+        let is_active_source = self.is_active_source(&document.uri);
         self.documents
             .insert(document.uri.clone(), document.text.clone());
         if !is_tour {
             self.resolve_active_source_range();
+            if is_active_source {
+                self.refresh_inlay_hints(sender)?;
+            }
             return Ok(());
         }
 
@@ -260,9 +284,13 @@ impl TourServer {
             return Ok(());
         }
 
+        let is_active_source = self.is_active_source(&uri);
         self.documents.insert(uri.clone(), change.text.clone());
         if !is_tour {
             self.resolve_active_source_range();
+            if is_active_source {
+                self.refresh_inlay_hints(sender)?;
+            }
             return Ok(());
         }
 
@@ -526,6 +554,21 @@ impl TourServer {
         Ok(())
     }
 
+    fn did_close(
+        &mut self,
+        params: DidCloseTextDocumentParams,
+        sender: &Sender<Message>,
+    ) -> Result<()> {
+        let uri = params.text_document.uri;
+        let is_active_source = self.is_active_source(&uri);
+        self.documents.remove(&uri);
+        self.resolve_active_source_range();
+        if is_active_source {
+            self.refresh_inlay_hints(sender)?;
+        }
+        Ok(())
+    }
+
     fn apply_auto_start(&mut self, sender: &Sender<Message>) -> Result<()> {
         match self.settings.auto_start {
             AutoStart::Always => {
@@ -601,6 +644,37 @@ impl TourServer {
         }
         active.running = false;
         true
+    }
+
+    /// Return the single body hint for the active step in the requested source
+    /// document. Inactive tours, stopped tours, and other documents have no
+    /// hint.
+    pub fn inlay_hints(&self, params: &InlayHintParams) -> Option<Vec<InlayHint>> {
+        let active = self.state.active()?;
+        if !active.running {
+            return None;
+        }
+        if active.source_uri.as_ref() != Some(&params.text_document.uri) {
+            return None;
+        }
+
+        let step = active.current_step()?;
+        let source_range = active.source_range?;
+        let source = self.documents.get(&params.text_document.uri)?;
+        let hint = body_hint(step, source_range, source, self.settings.placement)?;
+
+        if hint.position < params.range.start || hint.position > params.range.end {
+            return None;
+        }
+
+        Some(vec![hint])
+    }
+
+    fn is_active_source(&self, uri: &Uri) -> bool {
+        self.state
+            .active()
+            .and_then(|active| active.source_uri.as_ref())
+            == Some(uri)
     }
 
     /// Ask the client to recompute inlay hints.
@@ -697,19 +771,39 @@ impl From<PositionError> for CommandError {
 
 impl std::error::Error for CommandError {}
 
+fn settings_from_configuration(value: &Value, current: TourSettings) -> TourSettings {
+    let tour_settings = value
+        .pointer("/lsp/tour/settings")
+        .or_else(|| value.get("settings"))
+        .unwrap_or(value);
+    if !has_tour_settings(tour_settings) {
+        return current;
+    }
+    TourSettings::from_initialization_options(Some(tour_settings))
+}
+
+fn has_tour_settings(value: &Value) -> bool {
+    value
+        .as_object()
+        .is_some_and(|object| object.contains_key("placement") || object.contains_key("auto_start"))
+}
+
 #[cfg(test)]
 mod tests {
     use lsp_server::{Message, Request, RequestId, Response};
     use lsp_types::{
-        Position, Range, ShowMessageRequestParams, TextDocumentContentChangeEvent,
-        TextDocumentItem, VersionedTextDocumentIdentifier,
+        InlayHint, InlayHintLabel, InlayHintParams, Position, Range, ShowMessageRequestParams,
+        TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+        VersionedTextDocumentIdentifier,
     };
     use serde_json::{Value, json};
 
     use super::{TOUR_COMMANDS, TourServer};
-    use crate::settings::{AutoStart, TourSettings};
+    use crate::settings::{AutoStart, Placement, TourSettings};
     use crate::state::UpdateOutcome;
 
+    const SOURCE_URI: &str = "file:///tours/src/main.rs";
+    const SOURCE: &str = "line0\nline1\nline2\nline3\nline4\n";
     const TOUR: &str = r#"# Tour
 
 ## 1. Entry
@@ -722,6 +816,25 @@ mod tests {
 
 ## 2. Router
 [router](src/router.rs#L4:1-L4:4)
+"#;
+    const BODY_TOUR: &str = r#"# Tour
+
+## 1. Entry
+[entry](src/main.rs#L2:1-L2:5)
+
+Entry body.
+"#;
+    const TOUR_WITH_TWO_STEPS: &str = r#"# Tour
+
+## 1. Entry
+[entry](src/main.rs#L2:1-L2:5)
+
+Entry body.
+
+## 2. Next
+[next](src/main.rs#L4:1-L4:5)
+
+Next body.
 "#;
 
     fn settings(auto_start: AutoStart) -> TourSettings {
@@ -869,12 +982,24 @@ mod tests {
     }
 
     fn did_open_notification(uri: &str, text: &str) -> lsp_server::Notification {
+        did_open_notification_with_language(uri, text, "Tour")
+    }
+
+    fn did_open_source_notification(uri: &str, text: &str) -> lsp_server::Notification {
+        did_open_notification_with_language(uri, text, "Rust")
+    }
+
+    fn did_open_notification_with_language(
+        uri: &str,
+        text: &str,
+        language_id: &str,
+    ) -> lsp_server::Notification {
         lsp_server::Notification::new(
             "textDocument/didOpen".to_owned(),
             json!({
                 "textDocument": TextDocumentItem {
                     uri: uri.parse().expect("valid URI"),
-                    language_id: "Tour".to_owned(),
+                    language_id: language_id.to_owned(),
                     version: 1,
                     text: text.to_owned(),
                 },
@@ -894,6 +1019,70 @@ mod tests {
                 .handle_notification(&did_open_notification(uri, text), sender)
                 .expect("source should open");
         }
+    }
+
+    fn did_close_notification(uri: &str) -> lsp_server::Notification {
+        lsp_server::Notification::new(
+            "textDocument/didClose".to_owned(),
+            json!({
+                "textDocument": TextDocumentIdentifier {
+                    uri: uri.parse().expect("valid URI"),
+                },
+            }),
+        )
+    }
+
+    fn did_change_configuration_notification(
+        settings: serde_json::Value,
+    ) -> lsp_server::Notification {
+        lsp_server::Notification::new(
+            "workspace/didChangeConfiguration".to_owned(),
+            json!({ "settings": settings }),
+        )
+    }
+
+    fn inlay_hint_params(uri: &str) -> InlayHintParams {
+        InlayHintParams {
+            work_done_progress_params: Default::default(),
+            text_document: TextDocumentIdentifier {
+                uri: uri.parse().expect("valid URI"),
+            },
+            range: Range::new(Position::new(0, 0), Position::new(u32::MAX, 0)),
+        }
+    }
+
+    fn hint_label(hint: &InlayHint) -> &str {
+        match &hint.label {
+            InlayHintLabel::String(label) => label,
+            InlayHintLabel::LabelParts(_) => panic!("expected a string label"),
+        }
+    }
+
+    fn active_hint(source: &str, placement: Placement) -> Option<InlayHint> {
+        let (sender, _receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(TourSettings {
+            placement,
+            ..Default::default()
+        });
+
+        server
+            .handle_notification(&did_open_source_notification(SOURCE_URI, source), &sender)
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", BODY_TOUR),
+                &sender,
+            )
+            .expect("tour should open");
+        server
+            .state
+            .active_mut()
+            .expect("tour should be active")
+            .running = true;
+
+        server
+            .inlay_hints(&inlay_hint_params(SOURCE_URI))
+            .and_then(|hints| hints.into_iter().next())
     }
 
     fn did_change_notification(uri: &str, text: &str) -> lsp_server::Notification {
@@ -957,6 +1146,289 @@ mod tests {
 
         assert!(receiver.try_recv().is_err());
         assert!(server.state().active().is_none());
+    }
+
+    #[test]
+    fn returns_one_padded_body_hint_for_the_active_source() {
+        let hint = active_hint(SOURCE, Placement::Below).expect("hint should exist");
+
+        assert_eq!(hint.position, Position::new(2, 0));
+        assert_eq!(hint.kind, None);
+        assert_eq!(hint.padding_left, Some(true));
+        assert_eq!(hint_label(&hint), " ▎ Entry body.\n");
+
+        let value = serde_json::to_value(&hint).expect("hint should serialize");
+        assert!(value.get("kind").is_none());
+        assert!(value.get("paddingRight").is_none());
+        assert_eq!(value["paddingLeft"], json!(true));
+        assert!(
+            value["label"]
+                .as_str()
+                .expect("string label")
+                .lines()
+                .all(|line| line.starts_with(" ▎ "))
+        );
+    }
+
+    #[test]
+    fn above_placement_anchors_at_the_selection_start_line() {
+        let hint = active_hint(SOURCE, Placement::Above).expect("hint should exist");
+
+        assert_eq!(hint.position, Position::new(1, 0));
+        assert_eq!(hint_label(&hint), " ▎ Entry body.\n");
+    }
+
+    #[test]
+    fn below_placement_falls_back_at_the_end_of_the_last_line() {
+        let hint = active_hint("line0\nline1", Placement::Below).expect("hint should exist");
+
+        assert_eq!(hint.position, Position::new(1, 5));
+        assert_eq!(hint_label(&hint), "\n ▎ Entry body.\n");
+    }
+
+    #[test]
+    fn trailing_newline_uses_the_empty_line_after_the_selection() {
+        let hint = active_hint("line0\nline1\n", Placement::Below).expect("hint should exist");
+
+        assert_eq!(hint.position, Position::new(2, 0));
+        assert_eq!(hint_label(&hint), " ▎ Entry body.\n");
+    }
+
+    #[test]
+    fn hint_refreshes_on_step_change_and_is_removed_on_stop() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(TourSettings::default());
+
+        server
+            .handle_notification(&did_open_source_notification(SOURCE_URI, SOURCE), &sender)
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", TOUR_WITH_TWO_STEPS),
+                &sender,
+            )
+            .expect("tour should open");
+        server
+            .state
+            .active_mut()
+            .expect("tour should be active")
+            .running = true;
+        let _ = receiver.try_iter().count();
+
+        let hint = server
+            .inlay_hints(&inlay_hint_params(SOURCE_URI))
+            .expect("active tour should have a hint")
+            .remove(0);
+        assert_eq!(hint_label(&hint), " ▎ Entry body.\n");
+
+        let next = server.handle_request(&execute_command_request(2, "tour.next"), &sender);
+        assert_command_ok(&next);
+        let requests = drain_server_requests(&receiver);
+        assert!(
+            requests
+                .iter()
+                .any(|(_, method, _)| method == "workspace/inlayHint/refresh"),
+            "step change should refresh hints"
+        );
+
+        let hint = server
+            .inlay_hints(&inlay_hint_params(SOURCE_URI))
+            .expect("new step should have a hint")
+            .remove(0);
+        assert_eq!(hint_label(&hint), " ▎ Next body.\n");
+
+        let stop = server.handle_request(&execute_command_request(3, "tour.stop"), &sender);
+        assert_command_ok(&stop);
+        let requests = drain_server_requests(&receiver);
+        assert!(
+            requests
+                .iter()
+                .any(|(_, method, _)| method == "workspace/inlayHint/refresh"),
+            "stop should refresh hints"
+        );
+        assert!(
+            server.inlay_hints(&inlay_hint_params(SOURCE_URI)).is_none(),
+            "a stopped tour should not return a hint"
+        );
+    }
+
+    #[test]
+    fn placement_change_updates_the_hint_and_refreshes() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(TourSettings::default());
+
+        server
+            .handle_notification(&did_open_source_notification(SOURCE_URI, SOURCE), &sender)
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", BODY_TOUR),
+                &sender,
+            )
+            .expect("tour should open");
+        server
+            .state
+            .active_mut()
+            .expect("tour should be active")
+            .running = true;
+        let _ = receiver.try_iter().count();
+
+        let hint = server
+            .inlay_hints(&inlay_hint_params(SOURCE_URI))
+            .expect("active tour should have a hint")
+            .remove(0);
+        assert_eq!(hint.position, Position::new(2, 0));
+
+        server
+            .handle_notification(
+                &did_change_configuration_notification(json!({ "placement": "above" })),
+                &sender,
+            )
+            .expect("configuration change should be handled");
+
+        let methods: Vec<_> = receiver
+            .try_iter()
+            .map(|message| match message {
+                Message::Request(request) => request.method,
+                other => panic!("unexpected message: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            methods,
+            vec![
+                "workspace/inlayHint/refresh".to_owned(),
+                "workspace/codeLens/refresh".to_owned(),
+            ]
+        );
+
+        let hint = server
+            .inlay_hints(&inlay_hint_params(SOURCE_URI))
+            .expect("placement change should still have a hint")
+            .remove(0);
+        assert_eq!(hint.position, Position::new(1, 0));
+    }
+
+    #[test]
+    fn empty_configuration_payload_keeps_initialization_settings() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let initialized = TourSettings {
+            placement: Placement::Above,
+            auto_start: AutoStart::Never,
+        };
+        let mut server = TourServer::new(initialized);
+
+        server
+            .handle_notification(&did_open_source_notification(SOURCE_URI, SOURCE), &sender)
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", BODY_TOUR),
+                &sender,
+            )
+            .expect("tour should open");
+        server
+            .state
+            .active_mut()
+            .expect("tour should be active")
+            .running = true;
+        let _ = receiver.try_iter().count();
+
+        server
+            .handle_notification(&did_change_configuration_notification(json!({})), &sender)
+            .expect("empty configuration should be ignored");
+
+        assert_eq!(server.settings(), initialized);
+        assert!(
+            receiver.try_recv().is_err(),
+            "an empty configuration should not refresh"
+        );
+        let hint = server
+            .inlay_hints(&inlay_hint_params(SOURCE_URI))
+            .expect("above placement should survive")
+            .remove(0);
+        assert_eq!(hint.position, Position::new(1, 0));
+    }
+
+    #[test]
+    fn inlay_hint_is_scoped_to_the_requested_range() {
+        let hint = active_hint(SOURCE, Placement::Below).expect("hint should exist");
+        assert_eq!(hint.position, Position::new(2, 0));
+
+        let (sender, _receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(TourSettings::default());
+        server
+            .handle_notification(&did_open_source_notification(SOURCE_URI, SOURCE), &sender)
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", BODY_TOUR),
+                &sender,
+            )
+            .expect("tour should open");
+        server
+            .state
+            .active_mut()
+            .expect("tour should be active")
+            .running = true;
+
+        let mut params = inlay_hint_params(SOURCE_URI);
+        params.range = Range::new(Position::new(0, 0), Position::new(1, 0));
+        assert!(server.inlay_hints(&params).is_none());
+
+        params.range = Range::new(Position::new(2, 0), Position::new(2, 0));
+        assert!(server.inlay_hints(&params).is_some());
+    }
+
+    #[test]
+    fn closing_the_active_source_refreshes_and_removes_the_hint() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(TourSettings::default());
+
+        server
+            .handle_notification(&did_open_source_notification(SOURCE_URI, SOURCE), &sender)
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/example.tour.md", BODY_TOUR),
+                &sender,
+            )
+            .expect("tour should open");
+        server
+            .state
+            .active_mut()
+            .expect("tour should be active")
+            .running = true;
+        let _ = receiver.try_iter().count();
+        assert!(server.inlay_hints(&inlay_hint_params(SOURCE_URI)).is_some());
+
+        server
+            .handle_notification(&did_close_notification(SOURCE_URI), &sender)
+            .expect("source should close");
+
+        let refresh = receiver.try_recv().expect("close should refresh hints");
+        assert!(matches!(
+            refresh,
+            Message::Request(request) if request.method == "workspace/inlayHint/refresh"
+        ));
+        assert!(server.inlay_hints(&inlay_hint_params(SOURCE_URI)).is_none());
+    }
+
+    #[test]
+    fn inlay_hint_request_returns_a_null_result_when_inactive() {
+        let (sender, _receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(TourSettings::default());
+        let request = lsp_server::Request::new(
+            RequestId::from(1),
+            "textDocument/inlayHint".to_owned(),
+            serde_json::to_value(inlay_hint_params(SOURCE_URI)).expect("params should serialize"),
+        );
+
+        let response = server.handle_request(&request, &sender);
+
+        match response.response_result {
+            Ok(result) => assert_eq!(result, json!(null)),
+            Err(error) => panic!("unexpected error response: {error:?}"),
+        }
     }
 
     #[test]

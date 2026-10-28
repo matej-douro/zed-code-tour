@@ -1,10 +1,10 @@
 # Language server initialization and state
 
-This document describes the protocol surface, active-tour state, and start/stop
-flow. Character-range navigation is described in
-[navigation.md](navigation.md). Source-file overlays and step controls are
-implemented by later issues. The agent-facing usage flow is documented in the
-README.
+This document describes the protocol surface, active-tour state, start/stop
+flow, and the body inlay hint. Character-range navigation is described in
+[navigation.md](navigation.md), and the body hint in
+[body-hint.md](body-hint.md). Source-file step controls are implemented by a
+later issue. The agent-facing usage flow is documented in the README.
 
 ## Capabilities and commands
 
@@ -85,8 +85,12 @@ Settings use the language server settings category:
 ```
 
 The extension reads `LspSettings::for_worktree("tour", worktree)` and passes
-`settings.settings` as the LSP initialization options. The server validates each
-field independently:
+`settings.settings` as the LSP initialization options. It returns the same
+value from `language_server_workspace_configuration`, so Zed's
+`workspace/didChangeConfiguration` notification carries the real settings
+instead of an empty object. The server keeps the current settings for an empty
+configuration payload, so startup cannot clobber the initialization options. The
+server validates each field independently:
 
 | Field | Values | Default |
 | --- | --- | --- |
@@ -95,7 +99,8 @@ field independently:
 
 An absent field, a non-object options value, or an invalid value falls back to
 the default for that field. Unknown fields are ignored. Values are
-case-sensitive.
+case-sensitive. A `workspace/didChangeConfiguration` notification revalidates
+the settings and refreshes the overlays when the tour is active.
 
 The extension returns the settings schema from both the initialization options
 schema hook and the workspace configuration schema hook. `lsp.tour.settings`
@@ -114,9 +119,9 @@ Only Markdown documents whose path ends in `.tour.md` are processed as tours.
 `didOpen` and `didChange` for other documents update the source-text cache
 without changing tour state or sending refreshes. The cache lets navigation use
 unsaved source content; when a target is not open, the server reads it from
-disk. `didClose` removes the cached text. Full sync is advertised; an
-incremental change to a source document drops its cached text rather than
-keeping stale content.
+disk. `didClose` removes the cached text and refreshes the body hint when the
+active source closes. Full sync is advertised; an incremental change to a
+source document drops its cached text rather than keeping stale content.
 
 ## Active tour state
 
