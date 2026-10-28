@@ -354,7 +354,7 @@ mod tests {
         assert_eq!(
             receiver.try_iter().count(),
             2,
-            "a failed update still refreshes to remove stale overlays"
+            "a failed update still refreshes the kept tour's overlays"
         );
         assert_eq!(
             server
