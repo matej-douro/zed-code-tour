@@ -1,0 +1,28 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# WASM build output
+*.wasm
+/extension.wasm
+/grammars/
+/build/
+/dist/
+
+# Node (tooling, if any)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor and OS artifacts
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+.zed/
