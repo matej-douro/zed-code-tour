@@ -48,7 +48,26 @@ impl LspClient {
 
         let initialize_response = self.receive();
         assert_eq!(initialize_response["id"], 1);
-        assert_eq!(initialize_response["result"]["capabilities"], json!({}));
+        assert_eq!(
+            initialize_response["result"]["capabilities"]["inlayHintProvider"],
+            json!(true)
+        );
+        assert_eq!(
+            initialize_response["result"]["capabilities"]["codeLensProvider"],
+            json!({ "resolveProvider": false })
+        );
+        assert_eq!(
+            initialize_response["result"]["capabilities"]["executeCommandProvider"]["commands"],
+            json!([
+                "tour.start",
+                "tour.stop",
+                "tour.next",
+                "tour.previous",
+                "tour.goto",
+                "tour.overview",
+                "tour.backToThread",
+            ])
+        );
         assert_eq!(
             initialize_response["result"]["serverInfo"]["name"],
             "tour-lsp"
@@ -101,6 +120,18 @@ impl LspClient {
             .expect("failed to read message body");
 
         serde_json::from_slice(&body).expect("failed to parse message body")
+    }
+
+    fn receive_until_response(&mut self, id: i64) -> Vec<Value> {
+        let mut messages = Vec::new();
+
+        loop {
+            let message = self.receive();
+            if message.get("method").is_none() && message["id"] == json!(id) {
+                return messages;
+            }
+            messages.push(message);
+        }
     }
 
     fn close_stdin(&mut self) {
@@ -189,4 +220,60 @@ fn exits_when_stdin_closes() {
 
     let status = client.wait_with_timeout();
     assert!(status.success(), "tour-lsp exited with {status}");
+}
+
+#[test]
+fn refreshes_hints_and_lenses_for_tour_documents_only() {
+    let mut client = LspClient::start();
+    client.initialize();
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": "file:///tours/notes.md",
+                "languageId": "Markdown",
+                "version": 1,
+                "text": "# Notes\n",
+            },
+        },
+    }));
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": "file:///tours/example.tour.md",
+                "languageId": "Tour",
+                "version": 1,
+                "text": "# Tour\n\n## 1. Entry\n[entry](src/main.rs#L1:1-L1:5)\n",
+            },
+        },
+    }));
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "shutdown",
+        "params": null,
+    }));
+
+    let messages = client.receive_until_response(2);
+    let methods: Vec<_> = messages
+        .iter()
+        .map(|message| message["method"].as_str().expect("server request method"))
+        .collect();
+    assert_eq!(
+        methods,
+        vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
+    );
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null,
+    }));
+    assert!(client.wait_with_timeout().success());
 }

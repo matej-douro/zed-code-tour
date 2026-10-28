@@ -5,9 +5,11 @@ A Zed extension plus language server for LSP-driven code tours written as
 renders a virtual annotation block below the selection, with Previous / Next /
 Overview / Stop controls as a code lens row. Source buffers are never edited.
 
-Status: scaffolding. The extension and language server start and speak LSP, and
-the tour file parser and model are implemented, but tour behavior is not
-implemented yet. The full design, constraints, and open questions live in
+Status: scaffolding. The extension and language server start and speak LSP, the
+tour file parser and model are implemented, and the language server now
+advertises the tour protocol surface, validates settings, and tracks one active
+tour. Hints, lenses, navigation, and agent integration are not implemented yet.
+The full design, constraints, and open questions live in
 [HANDOFF.md](HANDOFF.md).
 
 ## Roadmap
@@ -15,7 +17,7 @@ implemented yet. The full design, constraints, and open questions live in
 - [ ] Spike: verify code lens and inlay hint ordering and placement
 - [x] Scaffold Zed extension and tour LSP workspace
 - [x] Tour file parser and tour model
-- [ ] LSP initialization, settings, and active tour state
+- [x] LSP initialization, settings, and active tour state
 - [ ] Start/stop code lens and start flow
 - [ ] Body inlay hint renderer
 - [ ] Step control code lens row
@@ -37,6 +39,9 @@ implemented yet. The full design, constraints, and open questions live in
   `wasm32-wasip2`.
 - `crates/tour-lsp`: native language server binary speaking LSP over stdio.
   `crates/tour-lsp/src/tour` contains the `.tour.md` parser and tour model.
+  `crates/tour-lsp/src/settings.rs` and `state.rs` contain the validated
+  settings and active-tour state machine. See
+  [docs/lsp-state.md](docs/lsp-state.md).
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
 - `scripts/test.sh`: formatting, lint, build, and test checks.
 
@@ -52,6 +57,29 @@ reads tour files as Markdown. A follow-up can attach the Markdown grammar and
 queries to the Tour language, or attach the server to Markdown and drop the Tour
 language.
 
+## Settings
+
+Tour settings live under the language server settings category:
+
+```json
+{
+  "lsp": {
+    "tour": {
+      "settings": {
+        "placement": "below",
+        "auto_start": "prompt"
+      }
+    }
+  }
+}
+```
+
+`placement` is `below` (default) or `above`. `auto_start` is `always`, `prompt`
+(default), or `never`. Absent or invalid values fall back to the defaults. The
+extension reads these settings and passes them to the server as initialization
+options. See [docs/lsp-state.md](docs/lsp-state.md) for the schema, document
+filter, multiple-tour policy, and refresh behavior.
+
 ## Development
 
 Requirements:
@@ -59,6 +87,10 @@ Requirements:
 - Rust with the `wasm32-wasip2` target. The pinned toolchain in
   `rust-toolchain.toml` lists the target; `scripts/build-extension.sh` also
   installs it through rustup when needed.
+- Network access for the pinned Zed extension API git dependency. The schema
+  hooks used by the extension are not in `zed_extension_api` 0.7.0, so the
+  workspace pins the API to the Zed revision used by `HANDOFF.md` until 0.8.0 is
+  published.
 - Zed for loading the extension as a dev extension.
 
 Build and test the workspace:
@@ -97,7 +129,8 @@ Load the extension in Zed:
 3. Click `Install Dev Extension` and choose the repository root.
 
 Opening a `*.tour.md` file uses the Tour language and starts the `tour`
-language server. The server currently handles `initialize`, `initialized`,
-`shutdown`, and `exit`, and returns no capabilities.
+language server. The server handles `initialize`, `initialized`, `didOpen`,
+`didChange`, `shutdown`, and `exit`; advertises the tour caps and commands; and
+tracks the active tour. It does not return hints or lenses yet.
 
 License: TBD
