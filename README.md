@@ -118,7 +118,8 @@ Paths are registered here.
   destination is a local file path plus a range fragment. Relative paths resolve
   against the tour file directory.
 - Range fragments use `#L<line>:<column>-L<line>:<column>` with 1-based line and
-  column numbers. Ranges may span lines.
+  column numbers. The start position is inclusive and the end position is
+  exclusive, matching LSP ranges. Ranges may span lines.
 - A `zed:///agent/thread/<session_id>?name=...` link records the creating
   thread. Thread link routing from the tour file is tracked separately (#10).
 - The first paragraph of the step body is the annotation hint. Keep it short.
@@ -169,16 +170,17 @@ The agent cannot override `auto_start` per tour. It is the user's setting in
 
 ### Code lens caveat
 
-The tour-file start/stop lens and the step controls are code lenses. Code lens is
-off by default. With code lens off:
+The tour-file start/stop lens is a code lens, and the planned step controls will
+also use code lens. Code lens is off by default. With code lens off:
 
 - `auto_start: "always"` still starts the tour.
 - `auto_start: "prompt"` still shows the start prompt.
-- The start/stop lens and step controls are not rendered.
+- The start/stop lens is not rendered, and the step controls (once implemented)
+  will not be available.
 - `auto_start: "never"` leaves no visible way to start the tour.
 
-Enable code lens in Zed (`"code_lens": "on"`) when you want step controls or the
-manual start lens.
+Enable code lens in Zed (`"code_lens": "on"`) when you want the manual start lens
+or, once they land, step controls.
 
 ### Out of scope for v1
 
@@ -215,6 +217,7 @@ When the user asks for a code walkthrough, write a tour file and link it.
    <short explanation for this step>
 
 3. Paths are relative to the tour file. Lines and columns are 1-based. The
+   range start is inclusive and the range end is exclusive, matching LSP. The
    first link in each step is the target. Ranges may span lines.
 4. After writing the file, emit an ACP ResourceLink named "Start tour" with the
    absolute file URI, for example:
