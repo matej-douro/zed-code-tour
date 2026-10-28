@@ -94,7 +94,11 @@ Rules:
 - The step body is Markdown. Use the first paragraph or a hidden `hint` field
   as the plain-text body hint.
 - A `zed:///agent/thread/...` link is the creating thread link.
-- Hidden metadata uses HTML comments. The Markdown preview skips comments.
+- Hidden metadata uses HTML comments. Markdown tooling skips comments, so the
+  tour file stays valid Markdown. The current Tour language has no grammar, so
+  Markdown preview and highlighting are unavailable on `.tour.md` files until a
+  Markdown grammar is attached or the file is opened as Markdown (see
+  Architecture).
 - Do not put placement or auto-start in the tour file.
 
 Optional hidden metadata:
@@ -111,10 +115,15 @@ cannot be expressed in the link.
 Extension:
 
 - Defines a language server named, for example, `tour`.
-- Registers it for Markdown and for the source languages where overlays should
-  appear. There is no wildcard language registration.
-- The server filters Markdown files by the `.tour.md` suffix and ignores other
-  Markdown buffers.
+- Registers it for the Tour language and for the source languages where
+  overlays should appear. There is no wildcard language registration.
+- The Tour language owns `*.tour.md` through `languages/tour/config.toml`. It
+  takes precedence over Markdown, so `.tour.md` files do not get Markdown
+  preview, highlighting, or other Markdown editor features until the Tour
+  language is given the Markdown grammar and queries. Attaching the server to
+  Markdown and dropping the Tour language is the alternative.
+- The server filters Tour and Markdown buffers by the `.tour.md` suffix and
+  ignores other buffers.
 
 Language server:
 
@@ -377,7 +386,8 @@ Tour to thread:
 - Inlay hints on and off.
 - Code lens on and off.
 - `auto_start` always, prompt, never.
-- Tour file in raw editor and Markdown preview.
+- Tour file in raw editor. Markdown preview only after the Tour language is
+  given the Markdown grammar or the server is attached to Markdown instead.
 - Long body hint, narrow window, soft wrap.
 - Scrolling while active and after refresh.
 - Multiple tours and multiple source files.

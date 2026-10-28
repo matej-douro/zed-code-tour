@@ -9,6 +9,8 @@ repository = "https://github.com/matej-douro/zed-code-tour"
 # The Tour language is declared in languages/tour/config.toml, which is Zed's
 # extension layout for languages. Zed has no wildcard language registration, so
 # every source language where tour overlays may appear must be listed here.
+# The source languages below are the built-in Zed languages targeted by the
+# initial implementation. Extend this list as tour support grows.
 [language_servers.tour]
 name = "Tour"
 languages = [

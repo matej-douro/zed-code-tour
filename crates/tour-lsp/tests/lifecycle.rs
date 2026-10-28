@@ -1,13 +1,17 @@
 use std::{
     io::{BufRead, BufReader, Read, Write},
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use serde_json::{Value, json};
 
+const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+
 struct LspClient {
     child: Child,
-    stdin: ChildStdin,
+    stdin: Option<ChildStdin>,
     stdout: BufReader<ChildStdout>,
 }
 
@@ -25,17 +29,44 @@ impl LspClient {
 
         Self {
             child,
-            stdin,
+            stdin: Some(stdin),
             stdout: BufReader::new(stdout),
         }
     }
 
+    fn initialize(&mut self) {
+        self.send(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": null,
+                "capabilities": {},
+            },
+        }));
+
+        let initialize_response = self.receive();
+        assert_eq!(initialize_response["id"], 1);
+        assert_eq!(initialize_response["result"]["capabilities"], json!({}));
+        assert_eq!(
+            initialize_response["result"]["serverInfo"]["name"],
+            "tour-lsp"
+        );
+
+        self.send(json!({
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {},
+        }));
+    }
+
     fn send(&mut self, message: Value) {
         let body = serde_json::to_vec(&message).expect("failed to serialize message");
-        write!(self.stdin, "Content-Length: {}\r\n\r\n", body.len())
-            .expect("failed to write header");
-        self.stdin.write_all(&body).expect("failed to write body");
-        self.stdin.flush().expect("failed to flush message");
+        let stdin = self.stdin.as_mut().expect("stdin is closed");
+        write!(stdin, "Content-Length: {}\r\n\r\n", body.len()).expect("failed to write header");
+        stdin.write_all(&body).expect("failed to write body");
+        stdin.flush().expect("failed to flush message");
     }
 
     fn receive(&mut self) -> Value {
@@ -72,40 +103,31 @@ impl LspClient {
         serde_json::from_slice(&body).expect("failed to parse message body")
     }
 
-    fn finish(mut self) {
-        let status = self.child.wait().expect("failed to wait for tour-lsp");
-        assert!(status.success(), "tour-lsp exited with {status}");
+    fn close_stdin(&mut self) {
+        self.stdin.take();
+    }
+
+    fn wait_with_timeout(&mut self) -> ExitStatus {
+        let deadline = Instant::now() + EXIT_TIMEOUT;
+        loop {
+            if let Some(status) = self.child.try_wait().expect("failed to check child status") {
+                return status;
+            }
+
+            if Instant::now() >= deadline {
+                self.child.kill().expect("failed to kill tour-lsp");
+                panic!("tour-lsp did not exit within {EXIT_TIMEOUT:?}");
+            }
+
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
 #[test]
 fn completes_initialize_shutdown_and_exit() {
     let mut client = LspClient::start();
-
-    client.send(json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "processId": null,
-            "rootUri": null,
-            "capabilities": {},
-        },
-    }));
-
-    let initialize_response = client.receive();
-    assert_eq!(initialize_response["id"], 1);
-    assert_eq!(initialize_response["result"]["capabilities"], json!({}));
-    assert_eq!(
-        initialize_response["result"]["serverInfo"]["name"],
-        "tour-lsp"
-    );
-
-    client.send(json!({
-        "jsonrpc": "2.0",
-        "method": "initialized",
-        "params": {},
-    }));
+    client.initialize();
 
     client.send(json!({
         "jsonrpc": "2.0",
@@ -135,5 +157,36 @@ fn completes_initialize_shutdown_and_exit() {
         "params": null,
     }));
 
-    client.finish();
+    let status = client.wait_with_timeout();
+    assert!(status.success(), "tour-lsp exited with {status}");
+}
+
+#[test]
+fn exits_with_failure_when_exit_arrives_before_shutdown() {
+    let mut client = LspClient::start();
+    client.initialize();
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null,
+    }));
+
+    let status = client.wait_with_timeout();
+    assert_eq!(
+        status.code(),
+        Some(1),
+        "tour-lsp should exit with code 1 on exit before shutdown, got {status}"
+    );
+}
+
+#[test]
+fn exits_when_stdin_closes() {
+    let mut client = LspClient::start();
+    client.initialize();
+
+    client.close_stdin();
+
+    let status = client.wait_with_timeout();
+    assert!(status.success(), "tour-lsp exited with {status}");
 }

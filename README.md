@@ -40,8 +40,15 @@ questions live in [HANDOFF.md](HANDOFF.md).
 
 Zed has no wildcard language registration, so the `tour` server is registered
 explicitly for the Tour language and for each supported source language in
-`extension.toml`. Source languages can be added to that list as tour overlay
-support grows.
+`extension.toml`. The initial list covers the built-in languages targeted by the
+scaffold; add source languages there as tour overlay support grows.
+
+The Tour language takes precedence over Markdown for `*.tour.md` files. In this
+scaffold it has no grammar, so tour files do not get Markdown preview, syntax
+highlighting, or Markdown-specific editing features. The language server still
+reads tour files as Markdown. A follow-up can attach the Markdown grammar and
+queries to the Tour language, or attach the server to Markdown and drop the Tour
+language.
 
 ## Development
 
