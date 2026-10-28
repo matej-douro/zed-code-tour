@@ -6,11 +6,11 @@ renders a virtual annotation block below the selection, with Previous / Next /
 Overview / Stop controls as a code lens row. Source buffers are never edited.
 
 Status: scaffolding. The extension and language server start and speak LSP, the
-tour file parser and model are implemented, and the language server now
-advertises the tour protocol surface, validates settings, and tracks one active
-tour. Hints, lenses, navigation, and agent integration are not implemented yet.
-The full design, constraints, and open questions live in
-[HANDOFF.md](HANDOFF.md).
+tour file parser and model are implemented, the language server tracks one
+active tour, and the tour file has a start/stop code lens with the `always`,
+`prompt`, and `never` auto-start modes. Source-file hints, step controls,
+navigation, and agent integration are not implemented yet. The full design,
+constraints, and open questions live in [HANDOFF.md](HANDOFF.md).
 
 ## Roadmap
 
@@ -18,7 +18,7 @@ The full design, constraints, and open questions live in
 - [x] Scaffold Zed extension and tour LSP workspace
 - [x] Tour file parser and tour model
 - [x] LSP initialization, settings, and active tour state
-- [ ] Start/stop code lens and start flow
+- [x] Start/stop code lens and start flow
 - [ ] Body inlay hint renderer
 - [ ] Step control code lens row
 - [ ] Character-level range navigation with `window/showDocument`
@@ -132,7 +132,8 @@ Load the extension in Zed:
 
 Opening a `*.tour.md` file uses the Tour language and starts the `tour`
 language server. The server handles `initialize`, `initialized`, `didOpen`,
-`didChange`, `shutdown`, and `exit`; advertises the tour caps and commands; and
-tracks the active tour. It does not return hints or lenses yet.
+`didChange`, `textDocument/codeLens`, `workspace/executeCommand`, `shutdown`,
+and `exit`; tracks the active tour; and returns the tour-file start/stop lens.
+It does not return source-file hints or step controls yet.
 
 License: TBD

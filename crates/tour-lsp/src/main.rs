@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use anyhow::Result;
-use lsp_server::{Connection, ErrorCode, Message, Response};
+use lsp_server::{Connection, Message};
 use lsp_types::InitializeParams;
 use tour_lsp::{server::TourServer, settings::TourSettings};
 
@@ -36,11 +36,7 @@ fn run() -> Result<ExitCode> {
                     break;
                 }
 
-                let response = Response::new_err(
-                    request.id,
-                    ErrorCode::MethodNotFound as i32,
-                    format!("unsupported request: {}", request.method),
-                );
+                let response = server.handle_request(&request, &connection.sender);
                 connection.sender.send(Message::Response(response))?;
             }
             Message::Notification(notification) => {
@@ -53,7 +49,11 @@ fn run() -> Result<ExitCode> {
                     eprintln!("tour-lsp: failed to handle notification: {error:#}");
                 }
             }
-            Message::Response(_) => {}
+            Message::Response(response) => {
+                if let Err(error) = server.handle_response(&response, &connection.sender) {
+                    eprintln!("tour-lsp: failed to handle response: {error:#}");
+                }
+            }
         }
     }
 
