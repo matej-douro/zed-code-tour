@@ -388,6 +388,96 @@ fn auto_start_always_exposes_the_active_start_lens() {
 }
 
 #[test]
+fn answers_inlay_hint_requests_without_an_active_tour() {
+    let mut client = LspClient::start();
+    client.initialize();
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "textDocument/inlayHint",
+        "params": {
+            "textDocument": {
+                "uri": "file:///tours/src/main.rs",
+            },
+            "range": {
+                "start": { "line": 0, "character": 0 },
+                "end": { "line": 100, "character": 0 },
+            },
+        },
+    }));
+
+    let response = client.receive();
+    assert_eq!(response["id"], 2);
+    assert_eq!(response["result"], Value::Null);
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "shutdown",
+        "params": null,
+    }));
+    let shutdown_response = client.receive();
+    assert_eq!(shutdown_response["id"], 3);
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null,
+    }));
+    assert!(client.wait_with_timeout().success());
+}
+
+#[test]
+fn returns_the_body_hint_for_the_active_step() {
+    let mut client = LspClient::start();
+    client.initialize_with_auto_start("always");
+    open_navigation_sources(&mut client);
+    open_tour(
+        &mut client,
+        "# Tour\n\n## 1. Entry\n[entry](src/main.rs#L1:1-L1:5)\n\nBody text.\n",
+    );
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "textDocument/inlayHint",
+        "params": {
+            "textDocument": {
+                "uri": "file:///tours/src/main.rs",
+            },
+            "range": {
+                "start": { "line": 0, "character": 0 },
+                "end": { "line": 100, "character": 0 },
+            },
+        },
+    }));
+
+    let (_, response) = client.receive_until_result(2);
+    let hints = response["result"].as_array().expect("inlay hint array");
+    assert_eq!(hints.len(), 1);
+    assert_eq!(hints[0]["position"], json!({ "line": 1, "character": 0 }));
+    assert_eq!(hints[0]["paddingLeft"], json!(true));
+    assert!(hints[0].get("kind").is_none());
+    assert_eq!(hints[0]["label"], json!(" ▎ Body text.\n"));
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "shutdown",
+        "params": null,
+    }));
+    let shutdown = client.receive();
+    assert_eq!(shutdown["id"], 3);
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null,
+    }));
+    assert!(client.wait_with_timeout().success());
+}
+
+#[test]
 fn auto_start_prompt_starts_after_confirmation() {
     let mut client = LspClient::start();
     client.initialize_with_auto_start("prompt");

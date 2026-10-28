@@ -1,3 +1,4 @@
+pub mod hint;
 pub mod navigation;
 pub mod server;
 pub mod settings;

@@ -10,9 +10,10 @@ speak LSP, the tour file parser and model are implemented, the language server
 tracks one active tour, and the tour file has a start/stop code lens with the
 `always`, `prompt`, and `never` auto-start modes. Character-range navigation
 selects exact UTF-16 ranges with `window/showDocument`. Agent-facing usage docs
-and a parse-tested sample tour are available. Source-file hints, step controls,
-and thread routing are not implemented yet. The full design, constraints, and
-open questions live in [HANDOFF.md](HANDOFF.md).
+and a parse-tested sample tour are available. The active step is rendered as a
+body inlay hint in the source file. Step controls and thread routing are not
+implemented yet. The full design, constraints, and open questions live in
+[HANDOFF.md](HANDOFF.md).
 
 ## Roadmap
 
@@ -21,7 +22,7 @@ open questions live in [HANDOFF.md](HANDOFF.md).
 - [x] Tour file parser and tour model
 - [x] LSP initialization, settings, and active tour state
 - [x] Start/stop code lens and start flow
-- [ ] Body inlay hint renderer
+- [x] Body inlay hint renderer
 - [ ] Step control code lens row
 - [x] Character-level range navigation with `window/showDocument`
 - [x] Agent integration, sample tour, and usage docs
@@ -43,9 +44,10 @@ open questions live in [HANDOFF.md](HANDOFF.md).
   `crates/tour-lsp/src/tour` contains the `.tour.md` parser and tour model.
   `crates/tour-lsp/src/settings.rs` and `state.rs` contain the validated
   settings and active-tour state machine. Character-range conversion and
-  navigation commands live in `navigation.rs`. See
-  [docs/lsp-state.md](docs/lsp-state.md) and
-  [docs/navigation.md](docs/navigation.md).
+  navigation commands live in `navigation.rs`. `src/hint.rs` builds the body
+  hint. See [docs/lsp-state.md](docs/lsp-state.md),
+  [docs/navigation.md](docs/navigation.md), and
+  [docs/body-hint.md](docs/body-hint.md).
 - `examples/zed-code-tour.tour.md`: sample tour over this repository. A test
   keeps it parseable and verifies that its relative targets exist.
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
@@ -278,8 +280,10 @@ Load the extension in Zed:
 
 Opening a `*.tour.md` file uses the Tour language and starts the `tour`
 language server. The server handles `initialize`, `initialized`, `didOpen`,
-`didChange`, `textDocument/codeLens`, `workspace/executeCommand`, `shutdown`,
-and `exit`; tracks the active tour; and returns the tour-file start/stop lens.
-It does not return source-file hints or step controls yet.
+`didChange`, `didClose`, `workspace/didChangeConfiguration`,
+`textDocument/codeLens`, `workspace/executeCommand`, `shutdown`, and `exit`;
+advertises the tour caps and commands; tracks the active tour; returns the
+tour-file start/stop lens and the body inlay hint for the active step. It does
+not return source-file step control lenses yet.
 
 License: TBD

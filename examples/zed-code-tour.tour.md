@@ -18,7 +18,7 @@ The model keeps the title, the optional thread link, and the ordered steps. Each
 step stores its target path, range, body, and optional hint.
 
 ## 3. Start and stop lens
-[../crates/tour-lsp/src/server.rs:439:5-470:6](../crates/tour-lsp/src/server.rs#L439:5-L470:6)
+[../crates/tour-lsp/src/server.rs:467:5-498:6](../crates/tour-lsp/src/server.rs#L467:5-L498:6)
 
 The tour file gets one lens at the top. It starts the tour when inactive and
 offers stop and restart while the tour is running.
