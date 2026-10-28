@@ -2,8 +2,9 @@
 
 This document describes the protocol surface, active-tour state, and start/stop
 flow. Character-range navigation is described in
-[navigation.md](navigation.md). Source-file overlays, step controls, and agent
-integration are implemented by later issues.
+[navigation.md](navigation.md). Source-file overlays and step controls are
+implemented by later issues. The agent-facing usage flow is documented in the
+README.
 
 ## Capabilities and commands
 

@@ -5,12 +5,13 @@ A Zed extension plus language server for LSP-driven code tours written as
 renders a virtual annotation block below the selection, with Previous / Next /
 Overview / Stop controls as a code lens row. Source buffers are never edited.
 
-Status: scaffolding. The extension and language server start and speak LSP, the
-tour file parser and model are implemented, the language server tracks one
-active tour, and the tour file has a start/stop code lens with the `always`,
-`prompt`, and `never` auto-start modes. Character-range navigation selects exact
-UTF-16 ranges with `window/showDocument`; source-file hints, step controls, and
-agent integration are not implemented yet. The full design, constraints, and
+Status: early implementation. The extension and language server start and
+speak LSP, the tour file parser and model are implemented, the language server
+tracks one active tour, and the tour file has a start/stop code lens with the
+`always`, `prompt`, and `never` auto-start modes. Character-range navigation
+selects exact UTF-16 ranges with `window/showDocument`. Agent-facing usage docs
+and a parse-tested sample tour are available. Source-file hints, step controls,
+and thread routing are not implemented yet. The full design, constraints, and
 open questions live in [HANDOFF.md](HANDOFF.md).
 
 ## Roadmap
@@ -23,7 +24,7 @@ open questions live in [HANDOFF.md](HANDOFF.md).
 - [ ] Body inlay hint renderer
 - [ ] Step control code lens row
 - [x] Character-level range navigation with `window/showDocument`
-- [ ] Agent integration, sample tour, and usage docs
+- [x] Agent integration, sample tour, and usage docs
 - [ ] Thread link support and routing gap
 - [ ] Test harness and manual verification matrix
 - [ ] Packaging, install docs, and CI/release
@@ -45,6 +46,8 @@ open questions live in [HANDOFF.md](HANDOFF.md).
   navigation commands live in `navigation.rs`. See
   [docs/lsp-state.md](docs/lsp-state.md) and
   [docs/navigation.md](docs/navigation.md).
+- `examples/zed-code-tour.tour.md`: sample tour over this repository. A test
+  keeps it parseable and verifies that its relative targets exist.
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
 - `scripts/test.sh`: formatting, lint, build, and test checks.
 
@@ -82,6 +85,146 @@ Tour settings live under the language server settings category:
 extension reads these settings and passes them to the server as initialization
 options. See [docs/lsp-state.md](docs/lsp-state.md) for the schema, document
 filter, multiple-tour policy, and refresh behavior.
+
+## Usage
+
+Tour files are Markdown with a `.tour.md` suffix. Put the file anywhere in the
+worktree. Target paths resolve against the directory that contains the tour
+file, so a tour in `docs/` refers to `../src/main.rs`. The sample
+[examples/zed-code-tour.tour.md](examples/zed-code-tour.tour.md) is a complete
+tour over this repository and is covered by a parser test.
+
+### Write a tour
+
+```markdown
+# Auth flow
+
+[Back to the creating thread](zed:///agent/thread/<session_id>?name=Auth%20flow)
+
+## 1. Entry point
+[../src/main.rs:12:4-12:20](../src/main.rs#L12:4-L12:20)
+
+The program starts here, then calls the router at line 14.
+
+## 2. Router setup
+[../src/router.rs:40:8-40:58](../src/router.rs#L40:8-L40:58)
+
+Paths are registered here.
+```
+
+- `# Title` names the tour.
+- `## <number>. <title>` starts a step. Steps run in document order.
+- The first link in a step is its target. The link text is human-readable; the
+  destination is a local file path plus a range fragment. Relative paths resolve
+  against the tour file directory.
+- Range fragments use `#L<line>:<column>-L<line>:<column>` with 1-based line and
+  column numbers. The start position is inclusive and the end position is
+  exclusive, matching LSP ranges. Ranges may span lines.
+- A `zed:///agent/thread/<session_id>?name=...` link records the creating
+  thread. Thread link routing from the tour file is tracked separately (#10).
+- The first paragraph of the step body is the annotation hint. Keep it short.
+  A hidden `<!-- tour-step: {"hint": "Short text"} -->` comment overrides it.
+- Do not put placement or auto-start in the tour file. Those are user settings.
+
+### Agent flow
+
+The end-to-end flow is:
+
+1. The agent writes a `*.tour.md` file and leaves source files unchanged.
+2. The agent emits a `ResourceLink` named `Start tour` that points at the tour
+   file.
+3. The user clicks the link. Zed opens the file with the Tour language, and the
+   language server receives `didOpen`.
+4. The `auto_start` setting decides whether to start immediately, ask first, or
+   wait for the start lens.
+5. Once started, the tour selects step 0 and the tour-file lens shows stop and
+   restart controls.
+
+The ResourceLink is an ACP content block in agent output. Its `uri` must be an
+absolute `file://` URI:
+
+```json
+{
+  "type": "resource_link",
+  "name": "Start tour",
+  "uri": "file:///workspace/acme/docs/auth.tour.md",
+  "mimeType": "text/markdown"
+}
+```
+
+Point the link at the tour file, not at a source file. The name is the clickable
+label.
+
+### `auto_start` modes
+
+`auto_start` defaults to `prompt`.
+
+| Mode | Behavior | Tradeoff |
+| --- | --- | --- |
+| `prompt` (default) | On `didOpen`, asks `Start tour` or `Not now`. | One extra click, but opening a tour to read or edit it does not start a tour unexpectedly. |
+| `always` | Starts at step 0 as soon as the tour file opens. | The shortest agent flow, but any open starts the tour, including reopening the file later. Use it when opening a tour always means starting one. |
+| `never` | Does not prompt or start. Waits for the start/stop code lens. | Fully manual, but it needs code lens. With code lens off there is no visible start control in v1. |
+
+The agent cannot override `auto_start` per tour. It is the user's setting in
+`lsp.tour.settings`.
+
+### Code lens caveat
+
+The tour-file start/stop lens is a code lens, and the planned step controls will
+also use code lens. Code lens is off by default. With code lens off:
+
+- `auto_start: "always"` still starts the tour.
+- `auto_start: "prompt"` still shows the start prompt.
+- The start/stop lens is not rendered, and the step controls (once implemented)
+  will not be available.
+- `auto_start: "never"` leaves no visible way to start the tour.
+
+Enable code lens in Zed (`"code_lens": "on"`) when you want the manual start lens
+or, once they land, step controls.
+
+### Out of scope for v1
+
+- There is no MCP `start_tour` tool. Agents start a tour by writing a
+  `.tour.md` file and emitting a `Start tour` ResourceLink.
+- There is no inlay-part control fallback. Step controls require code lens; with
+  code lens off, the tour can start but has no step controls.
+- Thread routing from the tour file back to the agent thread is issue #10.
+- Tours do not edit source buffers. Selections and annotations are virtual.
+
+### Copy-paste agent instruction
+
+Use this as custom instructions for an agent that should produce tours:
+
+```text
+When the user asks for a code walkthrough, write a tour file and link it.
+
+1. Write a Markdown file named <topic>.tour.md in the worktree. Do not modify
+   source files.
+2. Use this format, with steps in visit order:
+
+   # <tour title>
+
+   [Back to the creating thread](zed:///agent/thread/<session_id>?name=<thread name>)
+
+   ## 1. <step title>
+   [<relative path>:<start line>:<start column>-<end line>:<end column>](<relative path>#L<start line>:<start column>-L<end line>:<end column>)
+
+   <short explanation for this step>
+
+   ## 2. <step title>
+   [<relative path>:<start line>:<start column>-<end line>:<end column>](<relative path>#L<start line>:<start column>-L<end line>:<end column>)
+
+   <short explanation for this step>
+
+3. Paths are relative to the tour file. Lines and columns are 1-based. The
+   range start is inclusive and the range end is exclusive, matching LSP. The
+   first link in each step is the target. Ranges may span lines.
+4. After writing the file, emit an ACP ResourceLink named "Start tour" with the
+   absolute file URI, for example:
+   {"type":"resource_link","name":"Start tour","uri":"file:///workspace/acme/docs/auth.tour.md","mimeType":"text/markdown"}
+   Do not call an MCP start_tour tool; it does not exist in v1.
+5. If you cannot obtain the agent thread id, omit the thread link.
+```
 
 ## Development
 
