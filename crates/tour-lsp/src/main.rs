@@ -2,9 +2,8 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use lsp_server::{Connection, ErrorCode, Message, Response};
-use lsp_types::{InitializeParams, ServerCapabilities};
-
-const SERVER_NAME: &str = "tour-lsp";
+use lsp_types::InitializeParams;
+use tour_lsp::{server::TourServer, settings::TourSettings};
 
 fn main() -> ExitCode {
     match run() {
@@ -20,16 +19,15 @@ fn run() -> Result<ExitCode> {
     let (connection, io_threads) = Connection::stdio();
 
     let (initialize_id, initialize_params) = connection.initialize_start()?;
-    let _: InitializeParams = serde_json::from_value(initialize_params)?;
+    let initialize_params: InitializeParams = serde_json::from_value(initialize_params)?;
+    let settings = TourSettings::from_initialization_options(
+        initialize_params.initialization_options.as_ref(),
+    );
 
-    let initialize_result = serde_json::json!({
-        "capabilities": ServerCapabilities::default(),
-        "serverInfo": {
-            "name": SERVER_NAME,
-            "version": env!("CARGO_PKG_VERSION"),
-        },
-    });
+    let initialize_result = serde_json::to_value(TourServer::initialize_result())?;
     connection.initialize_finish(initialize_id, initialize_result)?;
+
+    let mut server = TourServer::new(settings);
 
     for message in &connection.receiver {
         match message {
@@ -49,6 +47,10 @@ fn run() -> Result<ExitCode> {
                 if notification.method == "exit" {
                     eprintln!("tour-lsp: received exit before shutdown");
                     return Ok(ExitCode::FAILURE);
+                }
+
+                if let Err(error) = server.handle_notification(&notification, &connection.sender) {
+                    eprintln!("tour-lsp: failed to handle notification: {error:#}");
                 }
             }
             Message::Response(_) => {}
