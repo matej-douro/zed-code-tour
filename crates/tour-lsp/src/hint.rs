@@ -73,6 +73,10 @@ pub fn format_body(body: &str) -> Option<String> {
     if lines.len() > MAX_BODY_LINES {
         lines.truncate(MAX_BODY_LINES);
         if let Some(last) = lines.last_mut() {
+            let budget = MAX_BODY_WIDTH.saturating_sub(2);
+            if last.chars().count() > budget {
+                *last = last.chars().take(budget).collect();
+            }
             last.push(' ');
             last.push(TRUNCATION_MARKER);
         }
@@ -99,40 +103,45 @@ fn wrap_line(line: &str) -> Vec<String> {
     }
 
     let mut wrapped = Vec::new();
-    let mut current = String::new();
-    for word in line.split_whitespace() {
-        let word_width = word.chars().count();
-        if word_width > MAX_BODY_WIDTH {
-            if !current.is_empty() {
-                wrapped.push(std::mem::take(&mut current));
-            }
+    let mut remaining = line;
+    let mut first = true;
 
-            let mut chunk = String::new();
-            for ch in word.chars() {
-                if chunk.chars().count() == MAX_BODY_WIDTH {
-                    wrapped.push(std::mem::take(&mut chunk));
-                }
-                chunk.push(ch);
-            }
-            current = chunk;
-            continue;
+    while !remaining.is_empty() {
+        if !first {
+            remaining = remaining.trim_start();
+        }
+        if remaining.is_empty() {
+            break;
+        }
+        if remaining.chars().count() <= MAX_BODY_WIDTH {
+            wrapped.push(remaining.to_owned());
+            break;
         }
 
-        let separator = usize::from(!current.is_empty());
-        if current.chars().count() + separator + word_width <= MAX_BODY_WIDTH {
-            if separator == 1 {
-                current.push(' ');
+        let limit = remaining
+            .char_indices()
+            .nth(MAX_BODY_WIDTH)
+            .map_or(remaining.len(), |(index, _)| index);
+        let head = &remaining[..limit];
+
+        if let Some((index, _)) = head.char_indices().rev().find(|(_, ch)| ch.is_whitespace()) {
+            let before = remaining[..index].trim_end();
+            if !before.is_empty() {
+                wrapped.push(before.to_owned());
+                remaining = &remaining[index..];
+                first = false;
+                continue;
             }
-            current.push_str(word);
-        } else {
-            wrapped.push(std::mem::take(&mut current));
-            current.push_str(word);
         }
+
+        let hard = remaining[..limit].trim_end();
+        if !hard.is_empty() {
+            wrapped.push(hard.to_owned());
+        }
+        remaining = &remaining[limit..];
+        first = false;
     }
 
-    if !current.is_empty() {
-        wrapped.push(current);
-    }
     if wrapped.is_empty() {
         wrapped.push(String::new());
     }
@@ -259,6 +268,23 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_lines_keep_author_indentation_on_the_first_line() {
+        let body = format!("    {}", "word ".repeat(20).trim_end());
+        let text = format_body(&body).expect("body should format");
+        let lines: Vec<_> = text.lines().collect();
+
+        assert_eq!(lines.len(), 2);
+        assert!(
+            lines[0].starts_with("     word"),
+            "first wrapped line should keep the author indentation"
+        );
+        assert!(
+            lines[1].starts_with(" word"),
+            "continuation lines should only have the hint padding"
+        );
+    }
+
+    #[test]
     fn clamps_long_bodies_to_the_line_budget() {
         let body = (0..MAX_BODY_LINES + 2)
             .map(|index| format!("line {index}"))
@@ -269,6 +295,10 @@ mod tests {
         assert_eq!(text.lines().count(), MAX_BODY_LINES);
         assert!(text.lines().last().unwrap().ends_with(" …"));
         assert_eq!(text.matches('…').count(), 1);
+        assert!(
+            text.lines()
+                .all(|line| line.trim_start().chars().count() <= MAX_BODY_WIDTH)
+        );
 
         let long_line = "word ".repeat(MAX_BODY_LINES * 20).trim_end().to_owned();
         let text = format_body(&long_line).expect("body should format");
@@ -276,6 +306,10 @@ mod tests {
         assert_eq!(text.lines().count(), MAX_BODY_LINES);
         assert!(text.lines().last().unwrap().ends_with(" …"));
         assert_eq!(text.matches('…').count(), 1);
+        assert!(
+            text.lines()
+                .all(|line| line.trim_start().chars().count() <= MAX_BODY_WIDTH)
+        );
     }
 
     #[test]

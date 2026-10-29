@@ -47,8 +47,9 @@ Every line has the same shape:
 The body budget is six lines and 80 body columns per line. Author line breaks
 are kept for lines within the budget. Longer lines wrap at word boundaries; a
 word longer than 80 body columns is hard-wrapped. Wrapped lines beyond the six
-line budget are dropped and the last retained line gets a trailing `…`. Long
-lines are not truncated per line. The limits are constants in
+line budget are dropped and the last retained line gets a trailing `…` within
+the 80-column budget. Long lines are not truncated per line. The limits are
+constants in
 `crates/tour-lsp/src/hint.rs`.
 
 ## Placement

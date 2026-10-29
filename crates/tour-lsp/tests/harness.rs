@@ -144,8 +144,8 @@ fn assert_body_hint(value: &Value, position: (u64, u64), expected: &str) {
         .collect();
     for line in &lines {
         assert!(
-            line.starts_with(' ') && !line.starts_with("  "),
-            "body line should start with one padding space: {line:?}"
+            line.starts_with(' '),
+            "body line should start with a padding space: {line:?}"
         );
         assert!(
             !line.contains('▎'),
