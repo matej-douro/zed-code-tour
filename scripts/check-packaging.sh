@@ -36,6 +36,8 @@ grep -qx 'name = "zed-code-tour-extension"' Cargo.toml ||
     fail "the root Cargo package must be named zed-code-tour-extension"
 [[ -f src/lib.rs ]] ||
     fail "the extension source is missing"
+[[ ! -e crates/zed-code-tour-extension/Cargo.toml ]] ||
+    fail "stale crates/zed-code-tour-extension/Cargo.toml remains; the extension package lives at the repository root"
 [[ -f scripts/build-extension.sh ]] ||
     fail "scripts/build-extension.sh is missing"
 
