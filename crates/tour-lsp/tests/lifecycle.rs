@@ -512,7 +512,7 @@ fn back_to_thread_focuses_the_link_and_reports_the_fallback() {
         "params": null,
     }));
 
-    let messages = client.receive_until_response(3);
+    let (messages, _) = client.receive_until_response(3);
     let execute_response = messages
         .iter()
         .find(|message| message["id"] == json!(2))
