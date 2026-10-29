@@ -68,11 +68,12 @@ Unit tests beside the implementation cover the parser, state, settings, position
 conversion, hint formatting, control row anchors, and server state transitions.
 See `crates/tour-lsp/src/*.rs`.
 
-### CI
+### CI readiness
 
-`.github/workflows/test.yml` runs `./scripts/test.sh` on pushes to `main` and on
-pull requests. The harness is headless and uses only stdio, so it needs no Zed
-binary or display.
+`./scripts/test.sh` is the CI entry point. The fake LSP harness is headless and
+uses only stdio, so it needs no Zed binary or display. The repository does not
+have a CI provider configuration yet; wiring this script into the release
+pipeline is part of the separate packaging and CI work.
 
 ## Manual verification
 
