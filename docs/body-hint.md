@@ -32,21 +32,24 @@ first paragraph of the visible step body. See
 Every line has the same shape:
 
 ```text
- ▎ <body text padded to the widest line>
+ <body text padded to the widest line>
 ```
 
 - The leading space is required. Together with `paddingLeft: true` it makes the
   hint right-biased, so a code lens anchored at the same line stays above the
   body. See [the layout spike](spike-layout.md).
-- `▎` is the left rule.
+- There is no left rule.
 - Shorter lines are padded with spaces to the widest line for a consistent
   background rectangle.
 - The text ends with `\n`, so the next source line starts on its own row.
 - The hint has no `kind`, no `paddingRight`, no tooltip, and no text edits.
 
-The body budget is six lines and 80 characters per line. Extra lines are
-dropped and the last retained line gets a trailing `…`. Longer lines are
-truncated to 80 characters with a trailing `…`. The limits are constants in
+The body budget is six lines and 80 body columns per line. Author line breaks
+are kept for lines within the budget. Longer lines wrap at word boundaries; a
+word longer than 80 body columns is hard-wrapped. Wrapped lines beyond the six
+line budget are dropped and the last retained line gets a trailing `…` within
+the 80-column budget. Long lines are not truncated per line. The limits are
+constants in
 `crates/tour-lsp/src/hint.rs`.
 
 ## Placement

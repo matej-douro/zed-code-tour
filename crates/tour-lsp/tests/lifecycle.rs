@@ -292,7 +292,7 @@ fn returns_the_body_hint_for_the_active_step() {
     assert_eq!(hints[0]["position"], json!({ "line": 1, "character": 0 }));
     assert_eq!(hints[0]["paddingLeft"], json!(true));
     assert!(hints[0].get("kind").is_none());
-    assert_eq!(hints[0]["label"], json!(" ▎ Body text.\n"));
+    assert_eq!(hints[0]["label"], json!(" Body text.\n"));
 
     client.send(json!({
         "jsonrpc": "2.0",

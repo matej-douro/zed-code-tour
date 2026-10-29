@@ -2,11 +2,9 @@ use lsp_types::{InlayHint, InlayHintLabel, Position, Range};
 
 use crate::{settings::Placement, tour::TourStep};
 
-/// The left rule used by every body line.
-pub const LEFT_RULE: char = '▎';
-/// Longest body hint that is rendered. Additional lines are dropped.
+/// Longest body hint that is rendered. Additional wrapped lines are dropped.
 pub const MAX_BODY_LINES: usize = 6;
-/// Longest body line, excluding the padding and the left rule.
+/// Longest body line, excluding the leading padding space.
 pub const MAX_BODY_WIDTH: usize = 80;
 
 const TRUNCATION_MARKER: char = '…';
@@ -14,8 +12,8 @@ const TRUNCATION_MARKER: char = '…';
 /// Build the single body inlay hint for a step.
 ///
 /// The hint has no kind and sets `paddingLeft`, which gives it a right-biased
-/// anchor in Zed. Every line starts with one padding space before the left
-/// rule, so a code lens anchored at the same line stays above the body.
+/// anchor in Zed. Every line starts with one padding space, so a code lens
+/// anchored at the same line stays above the body.
 pub fn body_hint(
     step: &TourStep,
     source_range: Range,
@@ -55,41 +53,38 @@ pub fn body_hint(
 
 /// Format the plain-text body as padded hint lines that end with a newline.
 ///
-/// Returns `None` for an empty body. The line and width limits keep a long step
-/// from covering the viewport. Truncation uses an ellipsis and is documented in
-/// `docs/body-hint.md`.
+/// Returns `None` for an empty body. Author line breaks are kept for lines that
+/// fit. Longer lines wrap at word boundaries to `MAX_BODY_WIDTH` body columns,
+/// and a word longer than that budget is hard-wrapped. Wrapped lines beyond
+/// `MAX_BODY_LINES` are dropped and the last retained line gets a trailing
+/// ellipsis. The limits keep a long step from covering the viewport and are
+/// documented in `docs/body-hint.md`.
 pub fn format_body(body: &str) -> Option<String> {
-    let mut lines: Vec<String> = body.lines().map(str::trim_end).map(str::to_owned).collect();
+    let lines: Vec<String> = body
+        .lines()
+        .map(str::trim_end)
+        .flat_map(wrap_line)
+        .collect();
 
-    while lines.first().is_some_and(|line| line.is_empty()) {
-        lines.remove(0);
-    }
-    while lines.last().is_some_and(|line| line.is_empty()) {
-        lines.pop();
-    }
-    if lines.is_empty() {
-        return None;
-    }
+    let first = lines.iter().position(|line| !line.is_empty())?;
+    let last = lines.iter().rposition(|line| !line.is_empty())?;
+    let mut lines = lines[first..=last].to_vec();
 
     if lines.len() > MAX_BODY_LINES {
         lines.truncate(MAX_BODY_LINES);
         if let Some(last) = lines.last_mut() {
+            let budget = MAX_BODY_WIDTH.saturating_sub(2);
+            if last.chars().count() > budget {
+                *last = last.chars().take(budget).collect();
+            }
             last.push(' ');
             last.push(TRUNCATION_MARKER);
         }
     }
 
-    for line in &mut lines {
-        if line.chars().count() > MAX_BODY_WIDTH {
-            *line = truncate_chars(line, MAX_BODY_WIDTH);
-        }
-    }
-
     let width = lines.iter().map(|line| line.chars().count()).max()?;
-    let mut text = String::with_capacity((width + 4) * lines.len());
+    let mut text = String::with_capacity((width + 2) * lines.len());
     for line in lines {
-        text.push(' ');
-        text.push(LEFT_RULE);
         text.push(' ');
         text.push_str(&line);
         text.extend(std::iter::repeat_n(
@@ -102,14 +97,56 @@ pub fn format_body(body: &str) -> Option<String> {
     Some(text)
 }
 
-fn truncate_chars(line: &str, width: usize) -> String {
-    if line.chars().count() <= width {
-        return line.to_owned();
+fn wrap_line(line: &str) -> Vec<String> {
+    if line.chars().count() <= MAX_BODY_WIDTH {
+        return vec![line.to_owned()];
     }
 
-    let mut truncated: String = line.chars().take(width.saturating_sub(1)).collect();
-    truncated.push(TRUNCATION_MARKER);
-    truncated
+    let mut wrapped = Vec::new();
+    let mut remaining = line;
+    let mut first = true;
+
+    while !remaining.is_empty() {
+        if !first {
+            remaining = remaining.trim_start();
+        }
+        if remaining.is_empty() {
+            break;
+        }
+        if remaining.chars().count() <= MAX_BODY_WIDTH {
+            wrapped.push(remaining.to_owned());
+            break;
+        }
+
+        let limit = remaining
+            .char_indices()
+            .nth(MAX_BODY_WIDTH)
+            .map_or(remaining.len(), |(index, _)| index);
+        let head = &remaining[..limit];
+
+        if let Some((index, _)) = head.char_indices().rev().find(|(_, ch)| ch.is_whitespace()) {
+            let before = remaining[..index].trim_end();
+            if !before.is_empty() {
+                wrapped.push(before.to_owned());
+                remaining = &remaining[index..];
+                first = false;
+                continue;
+            }
+        }
+
+        let hard = remaining[..limit].trim_end();
+        if !hard.is_empty() {
+            wrapped.push(hard.to_owned());
+        }
+        remaining = &remaining[limit..];
+        first = false;
+    }
+
+    if wrapped.is_empty() {
+        wrapped.push(String::new());
+    }
+
+    wrapped
 }
 
 pub(crate) fn source_line_count(source: &str) -> u32 {
@@ -163,14 +200,16 @@ mod tests {
     }
 
     #[test]
-    fn formats_padded_lines_with_the_left_rule_and_trailing_newline() {
+    fn formats_padded_lines_without_a_left_rule_and_with_a_trailing_newline() {
         let text = format_body("First line.\nSecond.").expect("body should format");
 
-        assert_eq!(text, " ▎ First line.\n ▎ Second.    \n");
+        assert_eq!(text, " First line.\n Second.    \n");
         assert!(text.ends_with('\n'));
+        assert!(!text.contains('▎'));
 
         let lines: Vec<_> = text.split_terminator('\n').collect();
-        assert!(lines.iter().all(|line| line.starts_with(" ▎ ")));
+        assert!(lines.iter().all(|line| line.starts_with(' ')));
+        assert!(lines.iter().all(|line| !line.starts_with("  ")));
         assert_eq!(lines.len(), 2);
         assert_eq!(
             lines[0].chars().count(),
@@ -186,7 +225,67 @@ mod tests {
     }
 
     #[test]
-    fn clamps_long_bodies() {
+    fn preserves_author_line_breaks_within_the_budget() {
+        let text = format_body("short first\nshort second").expect("body should format");
+        let lines: Vec<_> = text.lines().collect();
+
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].trim_end(), " short first");
+        assert_eq!(lines[1].trim_end(), " short second");
+    }
+
+    #[test]
+    fn wraps_long_lines_at_word_boundaries_without_truncating() {
+        let body = format!("{} tail", "word ".repeat(20).trim_end());
+        let text = format_body(&body).expect("body should format");
+        let lines: Vec<_> = text.lines().collect();
+
+        assert_eq!(lines.len(), 2);
+        assert!(!text.contains('…'), "wrapped lines are not truncated");
+        assert!(
+            lines
+                .iter()
+                .all(|line| line.trim_start().chars().count() <= MAX_BODY_WIDTH)
+        );
+        let body_lines: Vec<_> = lines
+            .iter()
+            .map(|line| line.trim_start().trim_end())
+            .collect();
+        assert_eq!(body_lines[0], "word ".repeat(16).trim_end());
+        assert_eq!(body_lines[1], "word word word word tail");
+    }
+
+    #[test]
+    fn hard_wraps_words_longer_than_the_budget() {
+        let text = format_body(&"x".repeat(MAX_BODY_WIDTH * 2 + 5)).expect("body should format");
+        let widths: Vec<_> = text
+            .lines()
+            .map(|line| line.trim_start().trim_end().chars().count())
+            .collect();
+
+        assert_eq!(widths, vec![MAX_BODY_WIDTH, MAX_BODY_WIDTH, 5]);
+        assert!(!text.contains('…'), "hard wrapping is not truncation");
+    }
+
+    #[test]
+    fn wrapped_lines_keep_author_indentation_on_the_first_line() {
+        let body = format!("    {}", "word ".repeat(20).trim_end());
+        let text = format_body(&body).expect("body should format");
+        let lines: Vec<_> = text.lines().collect();
+
+        assert_eq!(lines.len(), 2);
+        assert!(
+            lines[0].starts_with("     word"),
+            "first wrapped line should keep the author indentation"
+        );
+        assert!(
+            lines[1].starts_with(" word"),
+            "continuation lines should only have the hint padding"
+        );
+    }
+
+    #[test]
+    fn clamps_long_bodies_to_the_line_budget() {
         let body = (0..MAX_BODY_LINES + 2)
             .map(|index| format!("line {index}"))
             .collect::<Vec<_>>()
@@ -195,12 +294,22 @@ mod tests {
 
         assert_eq!(text.lines().count(), MAX_BODY_LINES);
         assert!(text.lines().last().unwrap().ends_with(" …"));
+        assert_eq!(text.matches('…').count(), 1);
+        assert!(
+            text.lines()
+                .all(|line| line.trim_start().chars().count() <= MAX_BODY_WIDTH)
+        );
 
-        let long_line = "x".repeat(MAX_BODY_WIDTH + 20);
+        let long_line = "word ".repeat(MAX_BODY_LINES * 20).trim_end().to_owned();
         let text = format_body(&long_line).expect("body should format");
-        let body_line = text.trim_start_matches(" ▎ ").trim_end();
-        assert_eq!(body_line.chars().count(), MAX_BODY_WIDTH);
-        assert!(body_line.ends_with('…'));
+
+        assert_eq!(text.lines().count(), MAX_BODY_LINES);
+        assert!(text.lines().last().unwrap().ends_with(" …"));
+        assert_eq!(text.matches('…').count(), 1);
+        assert!(
+            text.lines()
+                .all(|line| line.trim_start().chars().count() <= MAX_BODY_WIDTH)
+        );
     }
 
     #[test]
@@ -216,7 +325,7 @@ mod tests {
         assert_eq!(hint.position, Position::new(2, 0));
         assert_eq!(hint.kind, None);
         assert_eq!(hint.padding_left, Some(true));
-        assert_eq!(hint_label(&hint), " ▎ Body.\n");
+        assert_eq!(hint_label(&hint), " Body.\n");
     }
 
     #[test]
@@ -230,7 +339,7 @@ mod tests {
         .expect("hint should exist");
 
         assert_eq!(hint.position, Position::new(1, 0));
-        assert_eq!(hint_label(&hint), " ▎ Body.\n");
+        assert_eq!(hint_label(&hint), " Body.\n");
     }
 
     #[test]
@@ -244,7 +353,7 @@ mod tests {
         .expect("hint should exist");
 
         assert_eq!(hint.position, Position::new(1, 5));
-        assert_eq!(hint_label(&hint), "\n ▎ Body.\n");
+        assert_eq!(hint_label(&hint), "\n Body.\n");
         assert_eq!(hint.padding_left, Some(true));
     }
 
@@ -259,7 +368,7 @@ mod tests {
         .expect("hint should exist");
 
         assert_eq!(hint.position, Position::new(2, 0));
-        assert_eq!(hint_label(&hint), " ▎ Body.\n");
+        assert_eq!(hint_label(&hint), " Body.\n");
     }
 
     #[test]
