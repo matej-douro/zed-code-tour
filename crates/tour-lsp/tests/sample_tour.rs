@@ -149,7 +149,15 @@ fn sample_tour_works_end_to_end_with_normalized_source_uris() {
 
         let (messages, response) = client.code_lenses(uri.as_str());
         assert!(messages.is_empty());
-        assert_eq!(lens_titles(&response).len(), 5);
+        let counter = format!("{}/{}", index + 1, source_uris.len());
+        let expected_row = if index == 0 {
+            format!("{counter} | Next ▶ | Overview | Back to thread | Stop")
+        } else if index + 1 == source_uris.len() {
+            format!("◀ Prev | {counter} | Overview | Back to thread | Stop")
+        } else {
+            format!("◀ Prev | {counter} | Next ▶ | Overview | Back to thread | Stop")
+        };
+        assert_eq!(lens_titles(&response).join(" | "), expected_row);
 
         let (messages, response) = client.inlay_hints(uri.as_str());
         assert!(messages.is_empty());

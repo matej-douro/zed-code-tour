@@ -15,6 +15,11 @@ pub const STOP_COMMAND: &str = "tour.stop";
 /// `◀ Prev | 2/N | Next ▶ | Overview | Stop`. The step counter is attached to
 /// the Next lens so the row needs no non-interactive lens.
 ///
+/// Boundary controls are hidden because they would be no-ops. The first step
+/// renders `1/N | Next ▶ | Overview | Stop` and the last step renders
+/// `◀ Prev | N/N | Overview | Stop`. At the last step the counter moves to
+/// Overview, matching the single-step row.
+///
 /// A single-step tour omits Previous and Next because both would be no-ops.
 /// The counter is attached to Overview instead.
 ///
@@ -39,11 +44,26 @@ pub fn control_lenses(
             OVERVIEW_COMMAND,
         )]
     } else {
-        vec![
-            code_lens(range, "◀ Prev", PREVIOUS_COMMAND),
-            code_lens(range, format!("{counter} | Next ▶"), NEXT_COMMAND),
-            code_lens(range, "Overview", OVERVIEW_COMMAND),
-        ]
+        let at_first = current_step == 0;
+        let at_last = current_step.saturating_add(1) >= step_count;
+        let mut boundary_lenses = Vec::with_capacity(3);
+        if !at_first {
+            boundary_lenses.push(code_lens(range, "◀ Prev", PREVIOUS_COMMAND));
+        }
+        if !at_last {
+            boundary_lenses.push(code_lens(
+                range,
+                format!("{counter} | Next ▶"),
+                NEXT_COMMAND,
+            ));
+        }
+        let overview_title = if at_last {
+            format!("{counter} | Overview")
+        } else {
+            "Overview".to_owned()
+        };
+        boundary_lenses.push(code_lens(range, overview_title, OVERVIEW_COMMAND));
+        boundary_lenses
     };
     if has_thread_link {
         lenses.push(code_lens(range, "Back to thread", THREAD_COMMAND));
@@ -158,8 +178,8 @@ mod tests {
     #[test]
     fn above_placement_anchors_at_the_selection_start_line() {
         let lenses = control_lenses(
-            0,
-            2,
+            1,
+            3,
             range(1, 2),
             "line0\nline1\nline2\nline3\n",
             Placement::Above,
@@ -168,7 +188,7 @@ mod tests {
         let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
 
         assert_eq!(lines, vec![1, 1, 1, 1]);
-        assert_eq!(titles, vec!["◀ Prev", "1/2 | Next ▶", "Overview", "Stop"]);
+        assert_eq!(titles, vec!["◀ Prev", "2/3 | Next ▶", "Overview", "Stop"]);
         assert_eq!(
             commands,
             vec![
@@ -183,11 +203,11 @@ mod tests {
 
     #[test]
     fn last_line_fallback_anchors_at_the_selection_start_line() {
-        let lenses = control_lenses(0, 2, range(1, 1), "line0\nline1", Placement::Below, false);
+        let lenses = control_lenses(1, 3, range(1, 1), "line0\nline1", Placement::Below, false);
         let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
 
         assert_eq!(lines, vec![1, 1, 1, 1]);
-        assert_eq!(titles, vec!["◀ Prev", "1/2 | Next ▶", "Overview", "Stop"]);
+        assert_eq!(titles, vec!["◀ Prev", "2/3 | Next ▶", "Overview", "Stop"]);
         assert_eq!(
             commands,
             vec![
@@ -209,7 +229,7 @@ mod tests {
 
     #[test]
     fn thread_link_appends_the_back_to_thread_control() {
-        let lenses = control_lenses(0, 2, range(0, 0), "line0\nline1\n", Placement::Below, true);
+        let lenses = control_lenses(1, 3, range(0, 0), "line0\nline1\n", Placement::Below, true);
         let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
 
         assert_eq!(lines, vec![1, 1, 1, 1, 1]);
@@ -217,7 +237,7 @@ mod tests {
             titles,
             vec![
                 "◀ Prev",
-                "1/2 | Next ▶",
+                "2/3 | Next ▶",
                 "Overview",
                 "Back to thread",
                 "Stop"
@@ -234,6 +254,67 @@ mod tests {
             ]
         );
         assert_eq!(without_arguments, vec![true, true, true, true, true]);
+    }
+
+    #[test]
+    fn first_step_hides_previous_and_keeps_the_counter_on_next() {
+        let lenses = control_lenses(0, 3, range(0, 0), "line0\nline1\n", Placement::Below, false);
+        let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
+
+        assert_eq!(lines, vec![1, 1, 1]);
+        assert_eq!(titles, vec!["1/3 | Next ▶", "Overview", "Stop"]);
+        assert_eq!(commands, vec![NEXT_COMMAND, OVERVIEW_COMMAND, STOP_COMMAND]);
+        assert_eq!(without_arguments, vec![true, true, true]);
+    }
+
+    #[test]
+    fn last_step_hides_next_and_keeps_the_counter_on_overview() {
+        let lenses = control_lenses(2, 3, range(0, 0), "line0\nline1\n", Placement::Below, false);
+        let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
+
+        assert_eq!(lines, vec![1, 1, 1]);
+        assert_eq!(titles, vec!["◀ Prev", "3/3 | Overview", "Stop"]);
+        assert_eq!(
+            commands,
+            vec![PREVIOUS_COMMAND, OVERVIEW_COMMAND, STOP_COMMAND]
+        );
+        assert_eq!(without_arguments, vec![true, true, true]);
+    }
+
+    #[test]
+    fn middle_step_keeps_both_boundary_controls() {
+        let lenses = control_lenses(1, 3, range(0, 0), "line0\nline1\n", Placement::Below, false);
+        let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
+
+        assert_eq!(lines, vec![1, 1, 1, 1]);
+        assert_eq!(titles, vec!["◀ Prev", "2/3 | Next ▶", "Overview", "Stop"]);
+        assert_eq!(
+            commands,
+            vec![
+                PREVIOUS_COMMAND,
+                NEXT_COMMAND,
+                OVERVIEW_COMMAND,
+                STOP_COMMAND,
+            ]
+        );
+        assert_eq!(without_arguments, vec![true, true, true, true]);
+    }
+
+    #[test]
+    fn boundary_rows_still_append_the_thread_control() {
+        let first = control_lenses(0, 3, range(0, 0), "line0\nline1\n", Placement::Below, true);
+        let (_, titles, _, _) = lens_rows(&first);
+        assert_eq!(
+            titles,
+            vec!["1/3 | Next ▶", "Overview", "Back to thread", "Stop"]
+        );
+
+        let last = control_lenses(2, 3, range(0, 0), "line0\nline1\n", Placement::Below, true);
+        let (_, titles, _, _) = lens_rows(&last);
+        assert_eq!(
+            titles,
+            vec!["◀ Prev", "3/3 | Overview", "Back to thread", "Stop"]
+        );
     }
 
     #[test]

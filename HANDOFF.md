@@ -174,7 +174,9 @@ On `textDocument/codeLens` for an active source file:
 - For `placement: "below"`, return one control row at the line after the
   selection end line.
 - For `placement: "above"`, return the control row at the selection start line.
-- Suggested row: `◀ Prev | 2/N | Next ▶ | Overview | Stop`.
+- Suggested middle-step row: `◀ Prev | 2/N | Next ▶ | Overview | Stop`.
+  The first step hides `◀ Prev` and the last step hides `Next ▶`, so no dead
+  boundary control is clickable. The counter stays visible in every row.
 - The control row uses the stock code lens style.
 - The block map is layered above the inlay map, so a lens at the line after the
   selection should render above the body hint and below the selected code.
