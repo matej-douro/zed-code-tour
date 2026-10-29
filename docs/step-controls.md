@@ -17,7 +17,7 @@ one step, the server returns four lenses:
 | Title | Command | Behavior |
 | --- | --- | --- |
 | `◀ Prev` | `tour.previous` | Select the previous step, or no-op at the first step |
-| `<current>/<total> | Next ▶` | `tour.next` | Select the next step, or no-op at the last step |
+| `<current>/<total> \| Next ▶` | `tour.next` | Select the next step, or no-op at the last step |
 | `Overview` | `tour.overview` | Focus the tour file at the top |
 | `Stop` | `tour.stop` | Stop the tour and remove both overlays |
 
