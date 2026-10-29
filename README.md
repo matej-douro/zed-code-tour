@@ -260,13 +260,12 @@ Requirements:
 - Rust with the `wasm32-wasip2` target. The pinned toolchain in
   `rust-toolchain.toml` lists the target; `scripts/build-extension.sh` also
   installs it through rustup when needed.
-- Network access for the pinned Zed extension API git dependency. The schema
-  hooks used by the extension are not in `zed_extension_api` 0.7.0, so the
-  workspace pins the API to the Zed revision used by `HANDOFF.md` until 0.8.0 is
-  published. The resulting extension uses extension API 0.8.0 WIT, so it needs a
-  Zed build whose extension host supports `since_v0_8_0` (Zed HEAD at the pinned
-  revision or newer). Older stable Zed releases cannot load it.
-- Zed for loading the extension as a dev extension.
+- Network access to crates.io on the first build. The extension uses released
+  `zed_extension_api` 0.7.0, the newest extension API supported by Zed Stable
+  and Preview, so its wasm declares `since_v0_6_0` and loads on those channels.
+  The 0.8.0 schema hooks are deferred to a draft PR; they provide cosmetic
+  settings-editor validation and are not required for runtime settings.
+- Zed Stable or Preview for loading the extension as a dev extension.
 
 Build and test the workspace:
 

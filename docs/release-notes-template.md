@@ -19,8 +19,8 @@
 
 ## Requirements
 
-- Zed with extension API `since_v0_8_0` support (Zed HEAD at
-  `37faef81f74fc1bb08be9939c4cffc8ede6ced2f` or newer).
+- Zed Stable or Preview with extension API 0.7.0 support. The 0.8.0 schema
+  hooks are deferred to a draft PR and are not required.
 - `code_lens: "on"` and `inlay_hints.enabled: true` for the start/step controls
   and body annotation.
 - `tour-lsp` on `PATH` for version 0.1.0 local installs.

@@ -9,15 +9,13 @@ Release artifacts and the future extension-registry path are described in
 
 ## Requirements
 
-- A Zed build whose extension host supports `since_v0_8_0`. The extension API is
-  pinned to Zed revision `37faef81f74fc1bb08be9939c4cffc8ede6ced2f`, so use Zed
-  HEAD at that revision or newer. Older stable Zed releases cannot load the
-  extension.
+- Zed Stable or Preview. The extension uses released `zed_extension_api` 0.7.0
+  (extension API `since_v0_6_0`), which those channels accept. The deferred
+  0.8.0 schema hooks are not required to load or run the extension.
 - Rust 1.99.1. The repository pins it in `rust-toolchain.toml`.
 - The `wasm32-wasip2` target. `scripts/build-extension.sh` installs it through
   rustup when it is missing.
-- Network access for the pinned `zed_extension_api` git dependency on the first
-  build.
+- Network access to crates.io on the first build.
 - A shell where the directory containing `tour-lsp` is on `PATH`. Zed resolves
   the binary with `Worktree::which("tour-lsp")`.
 
