@@ -30,7 +30,7 @@ core follow-up. The full design, constraints, and open questions live in
 - [x] Agent integration, sample tour, and usage docs
 - [x] Thread link support and routing gap
 - [x] Test harness and manual verification matrix
-- [ ] Packaging, install docs, and CI/release
+- [x] Packaging, install docs, and CI/release
 
 ## Layout
 
@@ -56,7 +56,18 @@ core follow-up. The full design, constraints, and open questions live in
 - `examples/zed-code-tour.tour.md`: sample tour over this repository. A test
   keeps it parseable and verifies that its relative targets exist.
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
-- `scripts/test.sh`: formatting, lint, build, and test checks.
+- `scripts/check-packaging.sh`: verifies manifest metadata and version sync.
+- `scripts/test.sh`: packaging check, formatting, lint, build, and tests.
+- `scripts/package-release.sh`: builds the host release artifacts under `dist/`.
+- `scripts/bump-version.sh`: updates the extension and workspace versions.
+- `docs/install.md`: dev extension install, local `tour-lsp` setup, and the
+  required Zed settings.
+- `docs/packaging.md`: what ships, binary discovery, and release artifact
+  naming.
+- `docs/release.md` and `docs/release-notes-template.md`: release checklist and
+  notes template.
+- `docs/ci.md`: CI/release workflow status, the workflow-scope blocker, and
+  the one-step enable procedure tracked in #25.
 - `docs/testing.md`: automated suite entry points, the fake LSP harness, and
   the manual verification matrix.
 
@@ -260,8 +271,9 @@ Build and test the workspace:
 ./scripts/test.sh
 ```
 
-This runs `cargo fmt --check`, `cargo clippy`, `cargo build`, and
-`cargo test` for the workspace. The equivalent manual commands are:
+This runs the packaging metadata check, `cargo fmt --check`, `cargo clippy`,
+`cargo build`, and `cargo test` for the workspace. The equivalent manual
+commands are:
 
 ```sh
 cargo build --workspace --locked
@@ -284,7 +296,7 @@ output and is not committed.
 Install the language server so the extension can find it in `PATH`:
 
 ```sh
-cargo install --path crates/tour-lsp --locked
+cargo install --path crates/tour-lsp --locked --root "$HOME/.local"
 ```
 
 Load the extension in Zed:
@@ -292,6 +304,10 @@ Load the extension in Zed:
 1. Run `./scripts/build-extension.sh`.
 2. Open the extensions view with `zed: extensions`.
 3. Click `Install Dev Extension` and choose the repository root.
+
+Enable `code_lens: "on"`, `inlay_hints.enabled: true`, and the
+`lsp.tour.settings` block shown in [docs/install.md](docs/install.md). Both
+overlays are off by default.
 
 Opening a `*.tour.md` file uses the Tour language and starts the `tour`
 language server. The server handles `initialize`, `initialized`, `didOpen`,
@@ -301,4 +317,17 @@ advertises the tour caps and commands; tracks the active tour; returns the
 tour-file start/stop lens, the source-file step control row, and the body inlay
 hint for the active step.
 
-License: TBD
+## Packaging, install, and release
+
+- [Install and local setup](docs/install.md) covers the dev extension, the
+  local `tour-lsp` binary, required Zed settings, and verification.
+- [Packaging and distribution](docs/packaging.md) defines what ships, how the
+  extension finds `tour-lsp`, and the future registry asset names.
+- [Release checklist](docs/release.md) covers version bumps, tags, artifacts,
+  and notes. [CI workflow status](docs/ci.md) records the workflow-scope
+  blocker and the one-step enable procedure tracked in #25.
+
+License: TBD. This repository is not licensed for redistribution. A public
+GitHub release and a Zed extension-registry submission are blocked until a
+license is chosen, `LICENSE` is added, and this line is updated. The release
+script enforces this gate.

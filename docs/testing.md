@@ -22,6 +22,7 @@ Run everything from the repository root:
 The script runs, in order:
 
 ```sh
+./scripts/check-packaging.sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo build --workspace --locked
@@ -73,9 +74,11 @@ See `crates/tour-lsp/src/*.rs`.
 ### CI readiness
 
 `./scripts/test.sh` is the CI entry point. The fake LSP harness is headless and
-uses only stdio, so it needs no Zed binary or display. The repository does not
-have a CI provider configuration yet; wiring this script into the release
-pipeline is part of the separate packaging and CI work.
+uses only stdio, so it needs no Zed binary or display. The GitHub Actions
+workflow templates live in `ci/ci.yml` and `ci/release.yml`; see
+[ci.md](ci.md) for the workflow-scope blocker and the one-step move into
+`.github/workflows/`. The CI job runs `./scripts/test.sh` and
+`./scripts/build-extension.sh`.
 
 ## Manual verification
 
