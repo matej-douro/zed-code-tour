@@ -53,10 +53,12 @@ requests, and fails with a timeout instead of hanging when a payload is missing.
 - tour `didOpen`, code lens, and inlay hint payloads,
 - below, above, and last-line layout anchors,
 - left rule, padding, right bias, and the trailing newline,
-- `workspace/executeCommand` transitions and no-op boundaries,
+- `workspace/executeCommand` transitions and no-op boundaries (`tour.next` at
+  the last step, `tour.previous` at the first step, and out-of-range `goto`),
 - `window/showDocument` URIs, selections, `takeFocus`, and `external`,
 - `workspace/inlayHint/refresh` and `workspace/codeLens/refresh` requests,
-- inlay hints on and off, code lens on and off, and both off,
+- server behavior when overlay requests are omitted (the Zed settings gates
+  themselves are manual; see M06-M09),
 - multiple tours and multiple source files, replacement, and stop cleanup,
 - character columns, tabs, multibyte text, CRLF, and the last-line fallback.
 
@@ -170,9 +172,9 @@ not change product behavior as part of this test pass.
 | M04 | Last-line fallback | Target the last line of `last-no-newline.rs`, start below. | Body hint follows the selected line. Control row is above the selected line because no line follows it. The row and body do not overlap. | `harness.rs::layout_last_line_without_*`, `hint.rs`, `controls.rs` | [ ] | [ ] |
 | M05 | One hint plus lens | Enable `inlay_hints.show_background`, start a step with a two-line body. | Exactly one body hint and one separate code lens row render. There is no second inlay hint, no per-hint color, weight, or italic styling, and the background is rectangular. | `harness.rs`, `hint.rs` | [ ] | [ ] |
 | M06 | Inlay hints on | `inlay_hints.enabled: true`, code lens on, start a tour. | Body hint renders with the left rule and padding. | `harness.rs`, `hint.rs` | [ ] | [ ] |
-| M07 | Inlay hints off | `inlay_hints.enabled: false`, code lens on, start a tour. | Body hint is absent. Control row still renders and Previous/Next still move the selection. | `harness.rs::inlay_hints_off_*`, `server.rs` | [ ] | [ ] |
+| M07 | Inlay hints off | `inlay_hints.enabled: false`, code lens on, start a tour. | Body hint is absent. Control row still renders and Previous/Next still move the selection. | `harness.rs::inlay_hints_off_*` (protocol proxy), `server.rs` | [ ] | [ ] |
 | M08 | Code lens on | `code_lens: "on"`, open a tour. | Tour file has `▶ Start tour (N steps)` at the top. A running tour has `■ Stop tour \| ⟳ Restart \| n/N` and the source control row. | `harness.rs`, `server.rs`, `controls.rs` | [ ] | [ ] |
-| M09 | Code lens off | `code_lens: "off"`, reopen the tour. | No start lens and no source control row. `auto_start: "always"` still starts and `prompt` still asks. The missing step controls are expected in v1. | `harness.rs::prompt_*`, `both_overlays_off_*` | [ ] | [ ] |
+| M09 | Code lens off | `code_lens: "off"`, reopen the tour. | No start lens and no source control row. `auto_start: "always"` still starts and `prompt` still asks. The missing step controls are expected in v1. | `harness.rs::prompt_*`, `both_overlays_off_*` (protocol proxy) | [ ] | [ ] |
 | M10 | `auto_start: always` | Set `auto_start: "always"`, reopen the tour file. | Tour starts immediately at step 0 and selects its range. No prompt appears. | `lifecycle.rs::auto_start_always_*`, `server.rs` | [ ] | [ ] |
 | M11 | `auto_start: prompt` | Set `auto_start: "prompt"`, reopen the tour file. | A prompt offers `Start tour` and `Not now`. Start begins at step 0; Not now leaves the tour inactive. | `lifecycle.rs::auto_start_prompt_*`, `harness.rs::prompt_*` | [ ] | [ ] |
 | M12 | `auto_start: never` | Set `auto_start: "never"`, reopen the tour file. | Nothing starts automatically. With code lens on, `▶ Start tour (N steps)` starts it. With code lens off there is no visible start control. | `harness.rs::layout_below_*`, `server.rs` | [ ] | [ ] |

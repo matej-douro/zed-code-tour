@@ -42,6 +42,19 @@ Entry body.
 
 Next body.
 "#;
+const MULTILINE_TOUR: &str = r#"# Tour
+
+## 1. Entry
+[entry](src/main.rs#L2:3-L2:9)
+
+Entry body line one.
+Second.
+
+## 2. Router
+[router](src/router.rs#L4:1-L4:4)
+
+Router body.
+"#;
 
 fn open_inactive(client: &mut LspClient, source: &str, tour: &str) {
     client.open_source(SOURCE_URI, source);
@@ -125,13 +138,21 @@ fn assert_body_hint(value: &Value, position: (u64, u64), expected: &str) {
         expected.ends_with('\n'),
         "body hint should end with a newline"
     );
-    for line in expected.split_terminator('\n') {
-        if line.is_empty() {
-            continue;
-        }
+    let lines: Vec<_> = expected
+        .split_terminator('\n')
+        .filter(|line| !line.is_empty())
+        .collect();
+    for line in &lines {
         assert!(
             line.starts_with(" ▎ "),
             "body line should start with a padding space and the left rule: {line:?}"
+        );
+    }
+    if let Some(first) = lines.first() {
+        let width = first.chars().count();
+        assert!(
+            lines.iter().all(|line| line.chars().count() == width),
+            "body lines should be padded to the same width: {lines:?}"
         );
     }
 }
@@ -143,7 +164,7 @@ fn layout_below_anchors_the_control_row_between_code_and_body() {
         "placement": "below",
         "auto_start": "never",
     })));
-    open_inactive(&mut client, SOURCE, TWO_STEP_TOUR);
+    open_inactive(&mut client, SOURCE, MULTILINE_TOUR);
 
     let (messages, response) = client.code_lenses(TOUR_URI);
     assert!(messages.is_empty());
@@ -173,7 +194,8 @@ fn layout_below_anchors_the_control_row_between_code_and_body() {
     let hints = result(&response).as_array().expect("inlay hint array");
     assert_eq!(hints.len(), 1);
     assert_eq!(hints[0]["position"], json!({ "line": 2, "character": 0 }));
-    assert_body_hint(&hints[0], (2, 0), " ▎ Entry body.\n");
+    let expected = format!(" ▎ Entry body line one.\n ▎ Second.{}\n", " ".repeat(13));
+    assert_body_hint(&hints[0], (2, 0), &expected);
 
     client.finish();
 }
@@ -404,6 +426,8 @@ fn prompt_starts_without_code_lens_and_inlay_hints_still_render() {
     client.finish();
 }
 
+// Zed settings are client-side, so this is a protocol proxy: it proves the
+// server keeps serving lenses and commands when no hint request arrives.
 #[test]
 fn inlay_hints_off_with_code_lens_on_keeps_the_control_row() {
     let mut client = LspClient::start();
@@ -428,6 +452,8 @@ fn inlay_hints_off_with_code_lens_on_keeps_the_control_row() {
     client.finish();
 }
 
+// Zed settings are client-side, so this is a protocol proxy: it proves commands
+// and navigation do not depend on the client requesting hints or lenses.
 #[test]
 fn both_overlays_off_still_execute_the_tour_commands() {
     let mut client = LspClient::start();
@@ -447,6 +473,32 @@ fn both_overlays_off_still_execute_the_tour_commands() {
     let (messages, response) = client.execute_command("tour.goto", vec![json!(1)]);
     assert_eq!(result(&response), &json!(null));
     assert_show_document(&messages, SOURCE_URI, (3, 0), (3, 3));
+
+    let (messages, response) = client.execute_command("tour.next", Vec::new());
+    assert_eq!(result(&response), &json!(null));
+    assert!(
+        messages.is_empty(),
+        "next at the last step should be a no-op"
+    );
+
+    let (messages, response) = client.execute_command("tour.goto", vec![json!(2)]);
+    assert_eq!(response["error"]["code"], json!(-32803));
+    assert_eq!(
+        request_methods(&messages),
+        vec!["window/showMessage"],
+        "an out-of-range goto should report an error without moving"
+    );
+
+    let (messages, response) = client.execute_command("tour.goto", vec![json!(0)]);
+    assert_eq!(result(&response), &json!(null));
+    assert_show_document(&messages, SOURCE_URI, (1, 2), (1, 8));
+
+    let (messages, response) = client.execute_command("tour.previous", Vec::new());
+    assert_eq!(result(&response), &json!(null));
+    assert!(
+        messages.is_empty(),
+        "previous at the first step should be a no-op"
+    );
 
     let (messages, response) = client.execute_command("tour.overview", Vec::new());
     assert_eq!(result(&response), &json!(null));
