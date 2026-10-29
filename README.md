@@ -66,7 +66,8 @@ core follow-up. The full design, constraints, and open questions live in
   naming.
 - `docs/release.md` and `docs/release-notes-template.md`: release checklist and
   notes template.
-- `docs/ci.md`: CI/release workflow status and the one-step enable procedure.
+- `docs/ci.md`: CI/release workflow status, the workflow-scope blocker, and
+  the one-step enable procedure tracked in #25.
 - `docs/testing.md`: automated suite entry points, the fake LSP harness, and
   the manual verification matrix.
 
@@ -324,7 +325,7 @@ hint for the active step.
   extension finds `tour-lsp`, and the future registry asset names.
 - [Release checklist](docs/release.md) covers version bumps, tags, artifacts,
   and notes. [CI workflow status](docs/ci.md) records the workflow-scope
-  blocker and the one-step enable procedure.
+  blocker and the one-step enable procedure tracked in #25.
 
 License: TBD. This repository is not licensed for redistribution. A public
 GitHub release and a Zed extension-registry submission are blocked until a

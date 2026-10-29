@@ -8,10 +8,20 @@ packages the host artifacts, and publishes a GitHub release.
 
 The repository token used to create the packaging pull request did not have the
 GitHub `workflow` scope, so GitHub rejected adding files under
-`.github/workflows/`. The exact templates are checked in at:
+`.github/workflows/`:
+
+```text
+refusing to allow a Personal Access Token to create or update workflow
+`.github/workflows/ci.yml` without `workflow` scope
+```
+
+The exact templates are checked in at:
 
 - `ci/ci.yml` for pull-request and `main` CI.
 - `ci/release.yml` for tagged releases.
+
+[Issue #25](https://github.com/matej-douro/zed-code-tour/issues/25) tracks
+enabling the workflows with a `workflow`-scoped token.
 
 ## Enable CI
 
