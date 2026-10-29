@@ -61,8 +61,10 @@ git push origin v0.1.1
 ```
 
 When the release workflow is enabled, the tag builds the host artifact set and
-publishes a GitHub release with generated notes. If Actions is not available,
-run the packaging script manually and publish:
+publishes a GitHub release with GitHub-generated notes. To curate the notes
+manually instead, use the packaging plus `gh release create --notes-file`
+commands below. If Actions is not available, run the packaging script manually
+and publish:
 
 ```sh
 ./scripts/package-release.sh

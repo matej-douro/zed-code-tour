@@ -4,7 +4,11 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-if grep -qx 'License: TBD' README.md && [[ "${ALLOW_UNLICENSED_RELEASE:-0}" != "1" ]]; then
+license_unresolved() {
+    grep -q '^License: TBD' README.md
+}
+
+if license_unresolved && [[ "${ALLOW_UNLICENSED_RELEASE:-0}" != "1" ]]; then
     echo "License: TBD blocks public release." >&2
     echo "Choose a license, update README.md, and remove this gate before packaging a release." >&2
     echo "Set ALLOW_UNLICENSED_RELEASE=1 only to verify artifacts locally; do not publish them." >&2
@@ -58,6 +62,6 @@ fi
 
 echo "Release artifacts:"
 ls -1 "$dist_dir"
-if grep -qx 'License: TBD' README.md; then
+if license_unresolved; then
     echo "WARNING: License: TBD. These artifacts are for local verification only and must not be published." >&2
 fi
