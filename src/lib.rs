@@ -12,6 +12,30 @@ impl CodeTourExtension {
     fn is_tour_server(language_server_id: &LanguageServerId) -> bool {
         language_server_id.as_ref() == TOUR_LANGUAGE_SERVER_ID
     }
+
+    fn settings_schema() -> Value {
+        zed::serde_json::json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "Code Tour settings",
+            "description": "Settings for the Code Tour language server.",
+            "type": "object",
+            "properties": {
+                "placement": {
+                    "type": "string",
+                    "description": "Where the tour body is rendered relative to the selected source range.",
+                    "enum": ["below", "above"],
+                    "default": "below"
+                },
+                "auto_start": {
+                    "type": "string",
+                    "description": "Whether to start a tour when its file opens.",
+                    "enum": ["always", "prompt", "never"],
+                    "default": "prompt"
+                }
+            },
+            "additionalProperties": true
+        })
+    }
 }
 
 impl zed::Extension for CodeTourExtension {
@@ -67,6 +91,22 @@ impl zed::Extension for CodeTourExtension {
 
         let settings = LspSettings::for_worktree(TOUR_LANGUAGE_SERVER_ID, worktree)?;
         Ok(settings.settings)
+    }
+
+    fn language_server_initialization_options_schema(
+        &mut self,
+        language_server_id: &LanguageServerId,
+        _worktree: &Worktree,
+    ) -> Option<Value> {
+        Self::is_tour_server(language_server_id).then(Self::settings_schema)
+    }
+
+    fn language_server_workspace_configuration_schema(
+        &mut self,
+        language_server_id: &LanguageServerId,
+        _worktree: &Worktree,
+    ) -> Option<Value> {
+        Self::is_tour_server(language_server_id).then(Self::settings_schema)
     }
 }
 
