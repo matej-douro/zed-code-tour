@@ -6,7 +6,7 @@ in this repository. The thread link below is illustrative and does not resolve.
 [Back to the creating thread](zed:///agent/thread/sample-session?name=Code%20tour%20example)
 
 ## 1. Parse a tour file
-[../crates/tour-lsp/src/tour/parser.rs:66:1-66:18](../crates/tour-lsp/src/tour/parser.rs#L66:1-L66:18)
+[../crates/tour-lsp/src/tour/parser.rs:68:1-68:18](../crates/tour-lsp/src/tour/parser.rs#L68:1-L68:18)
 
 `parse_tour` reads the Markdown, resolves every target relative to the tour file,
 and returns all validation errors together.

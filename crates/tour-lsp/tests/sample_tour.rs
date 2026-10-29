@@ -1,6 +1,12 @@
+mod support;
+
 use std::path::{Path, PathBuf};
 
+use serde_json::json;
 use tour_lsp::tour::parse_tour;
+use tour_lsp::uri::file_uri;
+
+use support::{LspClient, lens_titles, request_methods, request_params, result};
 
 const SAMPLE_TOUR: &str = "examples/zed-code-tour.tour.md";
 
@@ -26,7 +32,7 @@ fn sample_tour_parses_and_targets_real_files() {
     assert_eq!(tour.steps.len(), 3);
 
     let expected_starts = [
-        (66, "fn parse_tour"),
+        (68, "fn parse_tour"),
         (5, "pub struct Tour"),
         (468, "fn code_lenses_for"),
     ];
@@ -35,6 +41,11 @@ fn sample_tour_parses_and_targets_real_files() {
         assert!(
             step.target.raw_path.starts_with("../"),
             "step {} should use a path relative to examples/",
+            step.number
+        );
+        assert!(
+            !step.target.path.to_string_lossy().contains(".."),
+            "step {} target path should be normalized",
             step.number
         );
 
@@ -80,4 +91,76 @@ fn sample_tour_parses_and_targets_real_files() {
             step.number
         );
     }
+}
+
+#[test]
+fn sample_tour_works_end_to_end_with_normalized_source_uris() {
+    let tour_path = repo_root().join(SAMPLE_TOUR);
+    let tour_source = std::fs::read_to_string(&tour_path).expect("sample tour should be readable");
+    let tour = parse_tour(&tour_path, &tour_source).expect("sample tour should parse");
+    let tour_uri = file_uri(&tour_path).expect("tour URI");
+
+    let mut client = LspClient::start();
+    client.initialize_with_options(Some(json!({
+        "placement": "below",
+        "auto_start": "never",
+    })));
+
+    let mut source_uris = Vec::new();
+    for step in &tour.steps {
+        let uri = file_uri(&step.target.path).expect("source URI");
+        let text = std::fs::read_to_string(&step.target.path)
+            .unwrap_or_else(|_| panic!("step {} target should exist", step.number));
+        client.open_source(uri.as_str(), &text);
+        source_uris.push(uri);
+    }
+
+    client.open_tour(tour_uri.as_str(), &tour_source);
+    let messages = client.receive_exact(2);
+    assert_eq!(
+        request_methods(&messages),
+        vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
+    );
+
+    for (index, uri) in source_uris.iter().enumerate() {
+        assert!(
+            !uri.as_str().contains(".."),
+            "source URI should be normalized: {}",
+            uri.as_str()
+        );
+
+        let (messages, response) = if index == 0 {
+            client.execute_command("tour.start", Vec::new())
+        } else {
+            client.execute_command("tour.next", Vec::new())
+        };
+        assert_eq!(result(&response), &json!(null));
+        let show_document =
+            request_params(&messages, "window/showDocument").expect("missing showDocument");
+        assert_eq!(show_document["uri"], json!(uri.as_str()));
+        assert_eq!(
+            request_methods(&messages),
+            vec![
+                "window/showDocument",
+                "workspace/inlayHint/refresh",
+                "workspace/codeLens/refresh",
+            ]
+        );
+
+        let (messages, response) = client.code_lenses(uri.as_str());
+        assert!(messages.is_empty());
+        assert_eq!(lens_titles(&response).len(), 5);
+
+        let (messages, response) = client.inlay_hints(uri.as_str());
+        assert!(messages.is_empty());
+        assert_eq!(
+            result(&response)
+                .as_array()
+                .expect("inlay hint array")
+                .len(),
+            1
+        );
+    }
+
+    client.finish();
 }
