@@ -182,12 +182,12 @@ fn layout_below_anchors_the_control_row_between_code_and_body() {
     let (_, response) = client.code_lenses(SOURCE_URI);
     assert_eq!(
         lens_lines(&response),
-        vec![2, 2, 2, 2],
-        "below placement anchors the row on the line after the selection"
+        vec![2, 2, 2],
+        "below placement anchors the first-step row on the line after the selection"
     );
     assert_eq!(
         lens_titles(&response),
-        vec!["◀ Prev", "1/2 | Next ▶", "Overview", "Stop"]
+        vec!["1/2 | Next ▶", "Overview", "Stop"]
     );
 
     let (_, response) = client.inlay_hints(SOURCE_URI);
@@ -214,7 +214,11 @@ fn layout_above_anchors_the_body_and_controls_at_the_selection_start() {
     assert_transition_refreshes(&messages);
 
     let (_, response) = client.code_lenses(SOURCE_URI);
-    assert_eq!(lens_lines(&response), vec![1, 1, 1, 1]);
+    assert_eq!(lens_lines(&response), vec![1, 1, 1]);
+    assert_eq!(
+        lens_titles(&response),
+        vec!["1/2 | Next ▶", "Overview", "Stop"]
+    );
 
     let (_, response) = client.inlay_hints(SOURCE_URI);
     let hints = result(&response).as_array().expect("inlay hint array");
@@ -303,7 +307,11 @@ fn multiple_tours_and_sources_replace_overlays_and_clean_up_on_stop() {
     let (_, response) = client.inlay_hints(SOURCE_URI);
     assert_eq!(hint_labels(&response), vec![" ▎ Entry body.\n"]);
     let (_, response) = client.code_lenses(SOURCE_URI);
-    assert_eq!(lens_lines(&response), vec![2, 2, 2, 2]);
+    assert_eq!(lens_lines(&response), vec![2, 2, 2]);
+    assert_eq!(
+        lens_titles(&response),
+        vec!["1/2 | Next ▶", "Overview", "Stop"]
+    );
 
     let second_tour = r#"# Second
 
@@ -339,7 +347,11 @@ Main body.
     let (_, response) = client.inlay_hints(ROUTER_URI);
     assert_eq!(hint_labels(&response), vec![" ▎ Router body.\n"]);
     let (_, response) = client.code_lenses(ROUTER_URI);
-    assert_eq!(lens_lines(&response), vec![4, 4, 4, 4]);
+    assert_eq!(lens_lines(&response), vec![4, 4, 4]);
+    assert_eq!(
+        lens_titles(&response),
+        vec!["1/2 | Next ▶", "Overview", "Stop"]
+    );
 
     let messages = next(&mut client);
     assert_show_document(&messages, SOURCE_URI, (0, 0), (0, 3));
@@ -438,7 +450,7 @@ fn inlay_hints_off_with_code_lens_on_keeps_the_control_row() {
     let (_, response) = client.code_lenses(SOURCE_URI);
     assert_eq!(
         lens_titles(&response),
-        vec!["◀ Prev", "1/2 | Next ▶", "Overview", "Stop"]
+        vec!["1/2 | Next ▶", "Overview", "Stop"]
     );
 
     let messages = stop(&mut client);
@@ -577,8 +589,12 @@ Last body.
     let (_, response) = client.code_lenses(SOURCE_URI);
     assert_eq!(
         lens_lines(&response),
-        vec![2, 2, 2, 2],
-        "last-line fallback anchors the row on the selected line"
+        vec![2, 2, 2],
+        "last-line fallback anchors the last-step row on the selected line"
+    );
+    assert_eq!(
+        lens_titles(&response),
+        vec!["◀ Prev", "4/4 | Overview", "Stop"]
     );
 
     client.finish();

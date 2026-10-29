@@ -43,9 +43,13 @@ separates lenses on the same line with ` | `, which renders the documented
 lens so it does not need a non-interactive lens. Both starting and restarting
 select step 0 and send both refresh notifications.
 
-The source row is described in [step-controls.md](step-controls.md). It is one
-line of four lenses (`◀ Prev`, `<current>/<total> | Next ▶`, `Overview`, `Stop`)
-for multi-step tours, or `1/1 | Overview | Stop` for single-step tours.
+The source row is described in [step-controls.md](step-controls.md). For
+multi-step tours it is one line of three or four lenses, depending on the step:
+`1/N | Next ▶ | Overview | Stop` at the first step,
+`◀ Prev | k/N | Next ▶ | Overview | Stop` in the middle, and
+`◀ Prev | N/N | Overview | Stop` at the last. Single-step tours render
+`1/1 | Overview | Stop`. The step counter rides on Next except at the last
+step, where it rides on Overview.
 
 ## Start flow
 

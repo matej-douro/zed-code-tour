@@ -3,7 +3,8 @@
 A Zed extension plus language server for LSP-driven code tours written as
 `.tour.md` files. A tour file selects exact character ranges in source files and
 renders a virtual annotation block below the selection, with Previous / Next /
-Overview / Stop controls as a code lens row. Source buffers are never edited.
+Overview / Stop controls as a code lens row that hides the boundary controls.
+Source buffers are never edited.
 
 Status: early implementation. The extension and language server start and
 speak LSP, the tour file parser and model are implemented, the language server

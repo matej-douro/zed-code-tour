@@ -1693,12 +1693,11 @@ Entry body.
         let response = server.handle_request(&code_lens_request(2, SOURCE_URI), &sender);
         assert_eq!(
             code_lens_titles(&response),
-            vec!["◀ Prev", "1/2 | Next ▶", "Overview", "Stop"]
+            vec!["1/2 | Next ▶", "Overview", "Stop"]
         );
         assert_eq!(
             code_lens_commands(&response),
             vec![
-                crate::controls::PREVIOUS_COMMAND,
                 crate::controls::NEXT_COMMAND,
                 crate::controls::OVERVIEW_COMMAND,
                 crate::controls::STOP_COMMAND,
@@ -1744,7 +1743,15 @@ Entry body.
         let response = server.handle_request(&code_lens_request(5, ROUTER_URI), &sender);
         assert_eq!(
             code_lens_titles(&response),
-            vec!["◀ Prev", "2/2 | Next ▶", "Overview", "Stop"]
+            vec!["◀ Prev", "2/2 | Overview", "Stop"]
+        );
+        assert_eq!(
+            code_lens_commands(&response),
+            vec![
+                crate::controls::PREVIOUS_COMMAND,
+                crate::controls::OVERVIEW_COMMAND,
+                crate::controls::STOP_COMMAND,
+            ]
         );
 
         let stop = server.handle_request(&execute_command_request(6, "tour.stop"), &sender);

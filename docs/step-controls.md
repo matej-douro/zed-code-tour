@@ -11,37 +11,43 @@ in [lsp-state.md](lsp-state.md), and the body hint in
 ## Row content
 
 LSP code lenses carry one command each, so the row is a sequence of lenses on
-the same line. Zed joins same-line lenses with ` | `. For a tour with more than
-one step, the server returns four lenses:
+the same line. Zed joins same-line lenses with ` | `. A boundary control would
+be a dead no-op, so the row changes shape at the first and last step:
+
+| Step | Rendered row |
+| --- | --- |
+| First step of a multi-step tour | `1/N \| Next ▶ \| Overview \| Stop` |
+| Middle step | `◀ Prev \| k/N \| Next ▶ \| Overview \| Stop` |
+| Last step | `◀ Prev \| N/N \| Overview \| Stop` |
+| Single step | `1/1 \| Overview \| Stop` |
+
+The commands behind the lenses are unchanged:
 
 | Title | Command | Behavior |
 | --- | --- | --- |
-| `◀ Prev` | `tour.previous` | Select the previous step, or no-op at the first step |
-| `<current>/<total> \| Next ▶` | `tour.next` | Select the next step, or no-op at the last step |
-| `Overview` | `tour.overview` | Focus the tour file at the top |
+| `◀ Prev` | `tour.previous` | Select the previous step. The lens is hidden at the first step. |
+| `<current>/<total> \| Next ▶` | `tour.next` | Select the next step. The lens is hidden at the last step. |
+| `Overview` or `<current>/<total> \| Overview` | `tour.overview` | Focus the tour file at the top. The counter is attached at the last step so the hidden Next does not take it away. |
 | `Stop` | `tour.stop` | Stop the tour and remove both overlays |
 
-Zed renders them as:
-
-```text
-◀ Prev | 2/N | Next ▶ | Overview | Stop
-```
+The step counter is part of an interactive lens so the row needs no
+non-interactive lens. At the first step it stays with Next. At the last step it
+moves to Overview, matching the single-step row. `tour.previous` and
+`tour.next` remain safe no-ops at the boundaries even though the lenses are
+hidden. Control commands take no arguments.
 
 If the tour has a creating-thread link, the row appends `Back to thread` before
-Stop:
+Stop. A middle step renders:
 
 ```text
 ◀ Prev | 2/N | Next ▶ | Overview | Back to thread | Stop
 ```
 
-The command focuses the recorded link line and explains the current routing
-gap. Tours without a thread link keep the exact row above, so the base layout
-from issue #7 is unchanged. See [thread-link.md](thread-link.md).
-
-The step counter is part of the Next lens so the row needs no non-interactive
-lens. In a multi-step tour, Previous and Next stay visible at the first and last
-step; their commands are no-ops at those boundaries, so the row does not change
-shape while moving through the tour. Control commands take no arguments.
+Boundary rows append the thread lens the same way:
+`1/N | Next ▶ | Overview | Back to thread | Stop` and
+`◀ Prev | N/N | Overview | Back to thread | Stop`. The command focuses the
+recorded link line and explains the current routing gap. Tours without a thread
+link keep the rows above. See [thread-link.md](thread-link.md).
 
 ### Single-step tours
 
@@ -110,8 +116,9 @@ tour-file lens and the step control row.
 ## Tests
 
 `crates/tour-lsp/src/controls.rs` covers the anchor line and command wiring for
-below, above, and last-line placement, the trailing-newline case, the
-single-step row, and the optional thread control. `crates/tour-lsp/src/server.rs`
-covers the running-only source row, switching to the new active source on a step
-change, removal on stop, Overview's show-document request, thread-link fallback
-behavior, and code lens refreshes.
+below, above, and last-line placement, the trailing-newline case, the first-step,
+middle-step, last-step, and single-step rows, and the optional thread control on
+boundary rows. `crates/tour-lsp/src/server.rs` covers the running-only source
+row, the first and last step row shapes, switching to the new active source on a
+step change, removal on stop, Overview's show-document request, thread-link
+fallback behavior, boundary no-ops, and code lens refreshes.
