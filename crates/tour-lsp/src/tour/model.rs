@@ -13,6 +13,8 @@ pub struct Tour {
 pub struct ThreadLink {
     pub text: String,
     pub uri: String,
+    /// 1-based line in the tour file that contains the link.
+    pub line: u32,
 }
 
 /// One ordered tour step.

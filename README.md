@@ -12,8 +12,10 @@ tracks one active tour, and the tour file has a start/stop code lens with the
 selects exact UTF-16 ranges with `window/showDocument`. Agent-facing usage docs
 and a parse-tested sample tour are available. The active step is rendered as a
 body inlay hint in the source file, and the active source file has a step control
-code lens row. Thread routing is not implemented yet. The full design,
-constraints, and open questions live in [HANDOFF.md](HANDOFF.md).
+code lens row. A tour thread link is stored and exposed, and the control row can
+focus it and explain the current routing gap. Full thread routing needs a Zed
+core follow-up. The full design, constraints, and open questions live in
+[HANDOFF.md](HANDOFF.md).
 
 ## Roadmap
 
@@ -26,7 +28,7 @@ constraints, and open questions live in [HANDOFF.md](HANDOFF.md).
 - [x] Step control code lens row
 - [x] Character-level range navigation with `window/showDocument`
 - [x] Agent integration, sample tour, and usage docs
-- [ ] Thread link support and routing gap
+- [x] Thread link support and routing gap
 - [ ] Test harness and manual verification matrix
 - [ ] Packaging, install docs, and CI/release
 
@@ -48,8 +50,9 @@ constraints, and open questions live in [HANDOFF.md](HANDOFF.md).
   hint and `src/controls.rs` builds the source step control row. See
   [docs/lsp-state.md](docs/lsp-state.md),
   [docs/navigation.md](docs/navigation.md),
-  [docs/body-hint.md](docs/body-hint.md), and
-  [docs/step-controls.md](docs/step-controls.md).
+  [docs/body-hint.md](docs/body-hint.md),
+  [docs/step-controls.md](docs/step-controls.md), and
+  [docs/thread-link.md](docs/thread-link.md).
 - `examples/zed-code-tour.tour.md`: sample tour over this repository. A test
   keeps it parseable and verifies that its relative targets exist.
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
@@ -125,7 +128,10 @@ Paths are registered here.
   column numbers. The start position is inclusive and the end position is
   exclusive, matching LSP ranges. Ranges may span lines.
 - A `zed:///agent/thread/<session_id>?name=...` link records the creating
-  thread. Thread link routing from the tour file is tracked separately (#10).
+  thread. A tour with this link gets a `Back to thread` control that focuses the
+  link line and shows the URI. Zed does not route thread URIs from code lens or
+  preview yet; see [docs/thread-link.md](docs/thread-link.md) and the core
+  follow-up in #22.
 - The first paragraph of the step body is the annotation hint. Keep it short.
   A hidden `<!-- tour-step: {"hint": "Short text"} -->` comment overrides it.
 - Do not put placement or auto-start in the tour file. Those are user settings.
@@ -191,7 +197,9 @@ or step controls.
   `.tour.md` file and emitting a `Start tour` ResourceLink.
 - There is no inlay-part control fallback. Step controls require code lens; with
   code lens off, the tour can start but has no step controls.
-- Thread routing from the tour file back to the agent thread is issue #10.
+- Thread routing from code lens or preview needs a Zed core patch. The v1
+  fallback focuses the link and shows the URI; it does not silently fail. See
+  [docs/thread-link.md](docs/thread-link.md) and #22.
 - Tours do not edit source buffers. Selections and annotations are virtual.
 
 ### Copy-paste agent instruction

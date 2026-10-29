@@ -27,6 +27,17 @@ Zed renders them as:
 ◀ Prev | 2/N | Next ▶ | Overview | Stop
 ```
 
+If the tour has a creating-thread link, the row appends `Back to thread` before
+Stop:
+
+```text
+◀ Prev | 2/N | Next ▶ | Overview | Back to thread | Stop
+```
+
+The command focuses the recorded link line and explains the current routing
+gap. Tours without a thread link keep the exact row above, so the base layout
+from issue #7 is unchanged. See [thread-link.md](thread-link.md).
+
 The step counter is part of the Next lens so the row needs no non-interactive
 lens. In a multi-step tour, Previous and Next stay visible at the first and last
 step; their commands are no-ops at those boundaries, so the row does not change
@@ -42,7 +53,8 @@ becomes:
 ```
 
 The counter is attached to Overview instead. This keeps the step count visible
-and leaves only useful controls.
+and leaves only useful controls. A single-step tour with a thread link renders
+`1/1 | Overview | Back to thread | Stop`.
 
 ## Anchor
 
@@ -98,7 +110,8 @@ tour-file lens and the step control row.
 ## Tests
 
 `crates/tour-lsp/src/controls.rs` covers the anchor line and command wiring for
-below, above, and last-line placement, the trailing-newline case, and the
-single-step row. `crates/tour-lsp/src/server.rs` covers the running-only source
-row, switching to the new active source on a step change, removal on stop,
-Overview's show-document request, and code lens refreshes.
+below, above, and last-line placement, the trailing-newline case, the
+single-step row, and the optional thread control. `crates/tour-lsp/src/server.rs`
+covers the running-only source row, switching to the new active source on a step
+change, removal on stop, Overview's show-document request, thread-link fallback
+behavior, and code lens refreshes.

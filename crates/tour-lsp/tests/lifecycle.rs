@@ -335,6 +335,7 @@ fn open_tour(client: &mut LspClient, text: &str) {
 }
 
 const TWO_STEP_TOUR: &str = "# Tour\n\n## 1. Entry\n[entry](src/main.rs#L1:1-L1:5)\n\n## 2. Router\n[router](src/router.rs#L2:1-L2:4)\n";
+const THREAD_TOUR: &str = "# Tour\n\n[Back to the thread](zed:///agent/thread/session-1?name=Auth)\n\n## 1. Entry\n[entry](src/main.rs#L1:1-L1:5)\n";
 
 #[test]
 fn auto_start_always_exposes_the_active_start_lens() {
@@ -645,6 +646,89 @@ fn navigation_commands_select_exact_utf16_ranges() {
             "workspace/inlayHint/refresh",
             "workspace/codeLens/refresh",
         ]
+    );
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null,
+    }));
+    assert!(client.wait_with_timeout().success());
+}
+
+#[test]
+fn back_to_thread_focuses_the_link_and_reports_the_fallback() {
+    let mut client = LspClient::start();
+    client.initialize_with_auto_start("never");
+    open_navigation_sources(&mut client);
+    open_tour(&mut client, THREAD_TOUR);
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "workspace/executeCommand",
+        "params": {
+            "command": "tour.backToThread",
+            "arguments": [],
+        },
+    }));
+
+    client.send(json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "shutdown",
+        "params": null,
+    }));
+
+    let messages = client.receive_until_response(3);
+    let execute_response = messages
+        .iter()
+        .find(|message| message["id"] == json!(2))
+        .expect("missing executeCommand response");
+    assert_eq!(execute_response["result"], Value::Null);
+
+    let show_document = messages
+        .iter()
+        .find(|message| message["method"] == json!("window/showDocument"))
+        .expect("missing showDocument request");
+    assert_eq!(
+        show_document["params"],
+        json!({
+            "uri": "file:///tours/example.tour.md",
+            "external": false,
+            "takeFocus": true,
+            "selection": {
+                "start": { "line": 2, "character": 0 },
+                "end": { "line": 2, "character": 0 },
+            },
+        })
+    );
+
+    let message = messages
+        .iter()
+        .find(|message| message["method"] == json!("window/showMessage"))
+        .expect("missing fallback message");
+    assert_eq!(message["params"]["type"], json!(3));
+    let text = message["params"]["message"]
+        .as_str()
+        .expect("message should be text");
+    assert!(
+        text.contains("does not route zed:///agent/thread links"),
+        "{text}"
+    );
+    assert!(text.contains("session-1"), "{text}");
+
+    let show_document_index = messages
+        .iter()
+        .position(|message| message["method"] == json!("window/showDocument"))
+        .expect("missing showDocument request");
+    assert!(
+        messages[show_document_index..]
+            .iter()
+            .all(|message| !message["method"]
+                .as_str()
+                .is_some_and(|method| method.contains("/refresh"))),
+        "backToThread should not refresh overlays"
     );
 
     client.send(json!({

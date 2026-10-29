@@ -5,6 +5,7 @@ use crate::{hint::source_line_count, settings::Placement};
 pub const PREVIOUS_COMMAND: &str = "tour.previous";
 pub const NEXT_COMMAND: &str = "tour.next";
 pub const OVERVIEW_COMMAND: &str = "tour.overview";
+pub const THREAD_COMMAND: &str = "tour.backToThread";
 pub const STOP_COMMAND: &str = "tour.stop";
 
 /// Build the single-line control row for the active source file.
@@ -16,30 +17,39 @@ pub const STOP_COMMAND: &str = "tour.stop";
 ///
 /// A single-step tour omits Previous and Next because both would be no-ops.
 /// The counter is attached to Overview instead.
+///
+/// A tour with a creating-thread link appends `Back to thread` before Stop. The
+/// base row keeps the layout from #7; tours without a thread link are unchanged.
 pub fn control_lenses(
     current_step: usize,
     step_count: usize,
     source_range: Range,
     source: &str,
     placement: Placement,
+    has_thread_link: bool,
 ) -> Vec<CodeLens> {
     let line = control_line(source_range, source, placement);
     let range = Range::new(Position::new(line, 0), Position::new(line, 0));
     let counter = format!("{}/{}", current_step.saturating_add(1), step_count);
 
-    if step_count <= 1 {
-        vec![
-            code_lens(range, format!("{counter} | Overview"), OVERVIEW_COMMAND),
-            code_lens(range, "Stop", STOP_COMMAND),
-        ]
+    let mut lenses = if step_count <= 1 {
+        vec![code_lens(
+            range,
+            format!("{counter} | Overview"),
+            OVERVIEW_COMMAND,
+        )]
     } else {
         vec![
             code_lens(range, "◀ Prev", PREVIOUS_COMMAND),
             code_lens(range, format!("{counter} | Next ▶"), NEXT_COMMAND),
             code_lens(range, "Overview", OVERVIEW_COMMAND),
-            code_lens(range, "Stop", STOP_COMMAND),
         ]
+    };
+    if has_thread_link {
+        lenses.push(code_lens(range, "Back to thread", THREAD_COMMAND));
     }
+    lenses.push(code_lens(range, "Stop", STOP_COMMAND));
+    lenses
 }
 
 /// Resolve the source line that anchors the control row.
@@ -74,7 +84,10 @@ fn code_lens(range: Range, title: impl Into<String>, command: &str) -> CodeLens 
 mod tests {
     use lsp_types::{CodeLens, Position, Range};
 
-    use super::{NEXT_COMMAND, OVERVIEW_COMMAND, PREVIOUS_COMMAND, STOP_COMMAND, control_lenses};
+    use super::{
+        NEXT_COMMAND, OVERVIEW_COMMAND, PREVIOUS_COMMAND, STOP_COMMAND, THREAD_COMMAND,
+        control_lenses,
+    };
     use crate::settings::Placement;
 
     fn range(start_line: u32, end_line: u32) -> Range {
@@ -124,6 +137,7 @@ mod tests {
             range(1, 1),
             "line0\nline1\nline2\nline3\n",
             Placement::Below,
+            false,
         );
         let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
 
@@ -149,6 +163,7 @@ mod tests {
             range(1, 2),
             "line0\nline1\nline2\nline3\n",
             Placement::Above,
+            false,
         );
         let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
 
@@ -168,7 +183,7 @@ mod tests {
 
     #[test]
     fn last_line_fallback_anchors_at_the_selection_start_line() {
-        let lenses = control_lenses(0, 2, range(1, 1), "line0\nline1", Placement::Below);
+        let lenses = control_lenses(0, 2, range(1, 1), "line0\nline1", Placement::Below, false);
         let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
 
         assert_eq!(lines, vec![1, 1, 1, 1]);
@@ -187,14 +202,43 @@ mod tests {
 
     #[test]
     fn trailing_newline_uses_the_empty_line_after_the_selection() {
-        let lenses = control_lenses(0, 2, range(1, 1), "line0\nline1\n", Placement::Below);
+        let lenses = control_lenses(0, 2, range(1, 1), "line0\nline1\n", Placement::Below, false);
 
         assert!(lenses.iter().all(|lens| lens.range.start.line == 2));
     }
 
     #[test]
+    fn thread_link_appends_the_back_to_thread_control() {
+        let lenses = control_lenses(0, 2, range(0, 0), "line0\nline1\n", Placement::Below, true);
+        let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
+
+        assert_eq!(lines, vec![1, 1, 1, 1, 1]);
+        assert_eq!(
+            titles,
+            vec![
+                "◀ Prev",
+                "1/2 | Next ▶",
+                "Overview",
+                "Back to thread",
+                "Stop"
+            ]
+        );
+        assert_eq!(
+            commands,
+            vec![
+                PREVIOUS_COMMAND,
+                NEXT_COMMAND,
+                OVERVIEW_COMMAND,
+                THREAD_COMMAND,
+                STOP_COMMAND,
+            ]
+        );
+        assert_eq!(without_arguments, vec![true, true, true, true, true]);
+    }
+
+    #[test]
     fn single_step_tours_omit_previous_and_next() {
-        let lenses = control_lenses(0, 1, range(0, 0), "line0\nline1\n", Placement::Below);
+        let lenses = control_lenses(0, 1, range(0, 0), "line0\nline1\n", Placement::Below, false);
         let (lines, titles, commands, without_arguments) = lens_rows(&lenses);
 
         assert_eq!(lines, vec![1, 1]);

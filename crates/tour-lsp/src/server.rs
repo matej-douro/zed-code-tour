@@ -489,6 +489,7 @@ impl TourServer {
             source_range,
             source,
             self.settings.placement,
+            active.thread_link().is_some(),
         )
     }
 
@@ -518,6 +519,27 @@ impl TourServer {
         }
     }
 
+    fn show_info(&self, sender: &Sender<Message>, message: &str) -> Result<()> {
+        self.show_message(sender, MessageType::INFO, message)
+    }
+
+    fn show_message(
+        &self,
+        sender: &Sender<Message>,
+        typ: MessageType,
+        message: &str,
+    ) -> Result<()> {
+        let params = ShowMessageParams {
+            typ,
+            message: message.to_owned(),
+        };
+        sender.send(Message::Notification(Notification::new(
+            SHOW_MESSAGE.to_owned(),
+            params,
+        )))?;
+        Ok(())
+    }
+
     fn execute_command(
         &mut self,
         params: &ExecuteCommandParams,
@@ -542,6 +564,9 @@ impl TourServer {
                     .clone();
                 let range = Range::new(Position::new(0, 0), Position::new(0, 0));
                 self.send_show_document(tour_uri, range, sender)?;
+            }
+            "tour.backToThread" => {
+                self.back_to_thread(sender)?;
             }
             "tour.next" => {
                 let (step, step_count) = self.current_step_and_count()?;
@@ -583,6 +608,38 @@ impl TourServer {
             _ => {}
         }
         Ok(())
+    }
+
+    /// Focus the tour file at the recorded thread link and explain the v1
+    /// fallback. zed:///agent/thread URIs are not routed from code lens, so the
+    /// command never pretends to have opened the thread.
+    fn back_to_thread(
+        &mut self,
+        sender: &Sender<Message>,
+    ) -> std::result::Result<(), CommandError> {
+        let (tour_uri, line, link_text, thread_uri) = {
+            let active = self.state.active().ok_or(CommandError::NoActiveTour)?;
+            let link = active.thread_link().ok_or(CommandError::NoThreadLink)?;
+            (
+                active.tour_uri.clone(),
+                link.line.saturating_sub(1),
+                link.text.clone(),
+                link.uri.clone(),
+            )
+        };
+
+        let range = Range::new(Position::new(line, 0), Position::new(line, 0));
+        self.send_show_document(tour_uri, range, sender)?;
+        self.show_info(
+            sender,
+            &format!(
+                "This Zed build does not route zed:///agent/thread links from code lens. \
+                 Open the thread from the Agent panel. The tour file records `{link_text}` \
+                 on line {}: `{thread_uri}`.",
+                line.saturating_add(1)
+            ),
+        )
+        .map_err(|error| CommandError::Internal(error.to_string()))
     }
 
     fn did_close(
@@ -763,6 +820,7 @@ fn invalid_params(request: &Request, message: String) -> Response {
 #[derive(Debug)]
 enum CommandError {
     NoActiveTour,
+    NoThreadLink,
     NoSteps,
     InvalidArguments(String),
     StepOutOfRange { step: usize, step_count: usize },
@@ -776,6 +834,7 @@ impl fmt::Display for CommandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoActiveTour => f.write_str("no tour is active"),
+            Self::NoThreadLink => f.write_str("the active tour has no thread link"),
             Self::NoSteps => f.write_str("the active tour has no steps"),
             Self::InvalidArguments(message) => f.write_str(message),
             Self::StepOutOfRange { step, step_count } => write!(
@@ -868,6 +927,13 @@ Entry body.
 [next](src/main.rs#L4:1-L4:5)
 
 Next body.
+"#;
+    const THREAD_TOUR: &str = r#"# Thread tour
+
+[Back to the thread](zed:///agent/thread/session-1?name=Auth)
+
+## 1. Entry
+[entry](src/main.rs#L2:3-L2:9)
 "#;
 
     fn settings(auto_start: AutoStart) -> TourSettings {
@@ -1647,6 +1713,139 @@ Next body.
                 .is_empty(),
             "a stopped tour should have no control row"
         );
+    }
+
+    #[test]
+    fn thread_tour_control_row_exposes_back_to_thread() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        open_navigation_sources(&mut server, &sender);
+        server
+            .handle_notification(&did_open_notification(TOUR_URI, THREAD_TOUR), &sender)
+            .expect("notification should be handled");
+        let _ = receiver.try_iter().count();
+        let start = server.handle_request(&execute_command_request(1, "tour.start"), &sender);
+        assert_command_ok(&start);
+        let _ = receiver.try_iter().count();
+
+        let response = server.handle_request(&code_lens_request(2, SOURCE_URI), &sender);
+        assert_eq!(
+            code_lens_titles(&response),
+            vec!["1/1 | Overview", "Back to thread", "Stop"]
+        );
+        assert_eq!(
+            code_lens_commands(&response),
+            vec![
+                crate::controls::OVERVIEW_COMMAND,
+                crate::controls::THREAD_COMMAND,
+                crate::controls::STOP_COMMAND,
+            ]
+        );
+    }
+
+    #[test]
+    fn back_to_thread_focuses_the_link_and_explains_the_static_fallback() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        open_navigation_sources(&mut server, &sender);
+        server
+            .handle_notification(&did_open_notification(TOUR_URI, THREAD_TOUR), &sender)
+            .expect("notification should be handled");
+        let _ = receiver.try_iter().count();
+
+        let response =
+            server.handle_request(&execute_command_request(1, "tour.backToThread"), &sender);
+        assert_command_ok(&response);
+
+        let messages: Vec<_> = receiver.try_iter().collect();
+        let show_document = messages
+            .iter()
+            .find_map(|message| match message {
+                Message::Request(request) if request.method == "window/showDocument" => {
+                    Some(request.params.clone())
+                }
+                _ => None,
+            })
+            .expect("backToThread should focus the tour file");
+        assert_eq!(
+            show_document,
+            json!({
+                "uri": TOUR_URI,
+                "external": false,
+                "takeFocus": true,
+                "selection": {
+                    "start": { "line": 2, "character": 0 },
+                    "end": { "line": 2, "character": 0 },
+                },
+            })
+        );
+
+        let notification = messages
+            .iter()
+            .find_map(|message| match message {
+                Message::Notification(notification)
+                    if notification.method == "window/showMessage" =>
+                {
+                    Some(&notification.params)
+                }
+                _ => None,
+            })
+            .expect("backToThread should explain the fallback");
+        assert_eq!(notification["type"], json!(3));
+        let text = notification["message"]
+            .as_str()
+            .expect("message should be text");
+        assert!(
+            text.contains("does not route zed:///agent/thread links"),
+            "{text}"
+        );
+        assert!(
+            text.contains("zed:///agent/thread/session-1?name=Auth"),
+            "{text}"
+        );
+        assert!(
+            messages.iter().all(|message| !matches!(
+                message,
+                Message::Request(request) if request.method.contains("/refresh")
+            )),
+            "backToThread changes no tour state and should not refresh overlays"
+        );
+    }
+
+    #[test]
+    fn back_to_thread_without_a_link_reports_an_error() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        server
+            .handle_notification(&did_open_notification(TOUR_URI, TOUR), &sender)
+            .expect("notification should be handled");
+        let _ = receiver.try_iter().count();
+
+        let response =
+            server.handle_request(&execute_command_request(1, "tour.backToThread"), &sender);
+        let error = response
+            .response_result
+            .expect_err("a tour without a thread link should fail");
+        assert!(error.message.contains("no thread link"), "{error:?}");
+
+        let messages: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(messages.len(), 1);
+        match &messages[0] {
+            Message::Notification(notification) => {
+                assert_eq!(notification.method, "window/showMessage");
+                assert_eq!(notification.params["type"], json!(1));
+                assert!(
+                    notification.params["message"]
+                        .as_str()
+                        .expect("message text")
+                        .contains("no thread link")
+                );
+            }
+            other => panic!("unexpected message: {other:?}"),
+        }
     }
 
     #[test]
