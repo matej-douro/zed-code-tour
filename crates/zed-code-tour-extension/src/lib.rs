@@ -54,8 +54,9 @@ impl zed::Extension for CodeTourExtension {
 
         let command = worktree.which(TOUR_LSP_BINARY).ok_or_else(|| {
             format!(
-                "{TOUR_LSP_BINARY} was not found in PATH. Build and install it with \
-                 `cargo install --path crates/tour-lsp --locked`."
+                "{TOUR_LSP_BINARY} was not found in PATH. Install it with \
+                 `cargo install --path crates/tour-lsp --locked --root \"$HOME/.local\"` \
+                 and put `$HOME/.local/bin` on PATH. See docs/install.md."
             )
         })?;
 

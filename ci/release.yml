@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          targets: wasm32-wasip2
+      - name: Cache Rust build output
+        uses: Swatinem/rust-cache@v2
+      - name: Package release artifacts
+        run: ./scripts/package-release.sh
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/*.tar.gz \
+            dist/*.wasm \
+            dist/SHA256SUMS \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Format, lint, test, and build WASM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+          targets: wasm32-wasip2
+      - name: Cache Rust build output
+        uses: Swatinem/rust-cache@v2
+      - name: Run formatting, lint, tests, and packaging checks
+        run: ./scripts/test.sh
+      - name: Build WASM extension
+        run: ./scripts/build-extension.sh
+      - name: Upload WASM extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-wasm
+          path: extension.wasm
+          if-no-files-found: error
