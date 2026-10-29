@@ -4,7 +4,7 @@ use lsp_types::{Range, Uri};
 
 use crate::{
     tour::{ParseError, ThreadLink, Tour, TourStep, parse_tour},
-    uri::{file_path, file_uri},
+    uri::{file_path, file_uri, same_file_uri},
 };
 
 /// The currently open tour and its resolved active step.
@@ -40,6 +40,15 @@ impl ActiveTour {
 
     pub fn thread_link(&self) -> Option<&ThreadLink> {
         self.tour.thread_link.as_ref()
+    }
+
+    /// Whether the URI names the active step's source file. Both URIs are
+    /// compared by normalized path so un-normalized inputs cannot miss the
+    /// overlays.
+    pub fn matches_source(&self, uri: &Uri) -> bool {
+        self.source_uri
+            .as_ref()
+            .is_some_and(|source_uri| same_file_uri(source_uri, uri))
     }
 
     pub fn step_count(&self) -> usize {
@@ -235,6 +244,30 @@ mod tests {
         );
         assert_eq!(active.source_range, None);
         assert!(!active.running);
+    }
+
+    #[test]
+    fn parent_targets_store_a_normalized_source_uri() {
+        let mut state = TourState::default();
+        state
+            .open_tour(
+                file_uri("file:///tours/examples/example.tour.md"),
+                r#"# Dots
+
+## 1. Parent
+[parent](../crates/./tour-lsp/../tour-lsp/src/main.rs#L1:1-L1:2)
+"#,
+            )
+            .expect("tour should open");
+
+        let active = state.active().expect("tour is active");
+        assert_eq!(
+            active.source_uri.as_ref().map(|uri| uri.as_str()),
+            Some("file:///tours/crates/tour-lsp/src/main.rs")
+        );
+        assert!(active.matches_source(&uri(
+            "file:///tours/examples/../crates/tour-lsp/src/main.rs"
+        )));
     }
 
     #[test]

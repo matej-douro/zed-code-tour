@@ -6,6 +6,8 @@ use std::{
 
 use serde_json::Value;
 
+use crate::uri::normalize_path;
+
 use super::model::{ThreadLink, Tour, TourPosition, TourRange, TourStep, TourTarget};
 
 const THREAD_URI_PREFIX: &str = "zed:///agent/thread/";
@@ -414,6 +416,7 @@ fn parse_target(link: &MarkdownLink, line: u32, base_dir: &Path) -> Result<TourT
     } else {
         base_dir.join(raw_path)
     };
+    let path = normalize_path(&path);
 
     Ok(TourTarget {
         link_text: link.text.clone(),
@@ -952,6 +955,43 @@ First body.
         assert_eq!(
             tour.steps[1].target.raw_path,
             "/workspace/project/src/lib.rs"
+        );
+    }
+
+    #[test]
+    fn normalizes_dot_segments_in_target_paths() {
+        let tour = parse_tour(
+            Path::new("/tours/examples/example.tour.md"),
+            r#"# Paths
+
+## 1. Parent
+[parent](../crates/tour-lsp/src/main.rs#L1:1-L1:2)
+
+## 2. Current
+[current](./src/./nested/../main.rs#L1:1-L1:2)
+
+## 3. Absolute
+[absolute](/tours/./examples/../crates/main.rs#L1:1-L1:2)
+"#,
+        )
+        .expect("tour should parse");
+
+        assert_eq!(
+            tour.steps[0].target.raw_path,
+            "../crates/tour-lsp/src/main.rs"
+        );
+        assert_eq!(
+            tour.steps[0].target.path,
+            Path::new("/tours/crates/tour-lsp/src/main.rs")
+        );
+        assert_eq!(tour.steps[1].target.raw_path, "./src/./nested/../main.rs");
+        assert_eq!(
+            tour.steps[1].target.path,
+            Path::new("/tours/examples/src/main.rs")
+        );
+        assert_eq!(
+            tour.steps[2].target.path,
+            Path::new("/tours/crates/main.rs")
         );
     }
 

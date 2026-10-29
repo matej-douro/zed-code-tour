@@ -472,7 +472,7 @@ impl TourServer {
         if active.tour_uri == params.text_document.uri {
             return self.tour_code_lenses(active);
         }
-        if !active.running || active.source_uri.as_ref() != Some(&params.text_document.uri) {
+        if !active.running || !active.matches_source(&params.text_document.uri) {
             return Vec::new();
         }
 
@@ -742,7 +742,7 @@ impl TourServer {
         if !active.running {
             return None;
         }
-        if active.source_uri.as_ref() != Some(&params.text_document.uri) {
+        if !active.matches_source(&params.text_document.uri) {
             return None;
         }
 
@@ -761,8 +761,7 @@ impl TourServer {
     fn is_active_source(&self, uri: &Uri) -> bool {
         self.state
             .active()
-            .and_then(|active| active.source_uri.as_ref())
-            == Some(uri)
+            .is_some_and(|active| active.matches_source(uri))
     }
 
     /// Ask the client to recompute inlay hints.
@@ -1528,6 +1527,61 @@ Next body.
             Ok(result) => assert_eq!(result, json!(null)),
             Err(error) => panic!("unexpected error response: {error:?}"),
         }
+    }
+
+    #[test]
+    fn overlay_handlers_accept_normalized_source_uris() {
+        let (sender, _receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+        let source_uri = "file:///tours/crates/tour-lsp/src/main.rs";
+        let tour = r#"# Dots
+
+## 1. Entry
+[entry](../crates/tour-lsp/src/main.rs#L2:1-L2:4)
+
+Entry body.
+"#;
+
+        server
+            .handle_notification(&did_open_source_notification(source_uri, SOURCE), &sender)
+            .expect("source should open");
+        server
+            .handle_notification(
+                &did_open_notification("file:///tours/examples/example.tour.md", tour),
+                &sender,
+            )
+            .expect("tour should open");
+
+        let active = server.state().active().expect("tour should be active");
+        assert_eq!(
+            active.source_uri.as_ref().map(|uri| uri.as_str()),
+            Some(source_uri)
+        );
+        server
+            .state
+            .active_mut()
+            .expect("tour should be active")
+            .running = true;
+
+        let response = server.handle_request(&code_lens_request(1, source_uri), &sender);
+        assert_eq!(code_lens_titles(&response), vec!["1/1 | Overview", "Stop"]);
+        assert!(server.inlay_hints(&inlay_hint_params(source_uri)).is_some());
+
+        let unnormalized_uri = "file:///tours/examples/../crates/tour-lsp/src/main.rs"
+            .parse()
+            .expect("valid URI");
+        server
+            .state
+            .active_mut()
+            .expect("tour should be active")
+            .source_uri = Some(unnormalized_uri);
+
+        let response = server.handle_request(&code_lens_request(2, source_uri), &sender);
+        assert_eq!(code_lens_titles(&response), vec!["1/1 | Overview", "Stop"]);
+        assert!(
+            server.inlay_hints(&inlay_hint_params(source_uri)).is_some(),
+            "an un-normalized stored URI must still match the normalized request"
+        );
     }
 
     #[test]
