@@ -89,9 +89,11 @@ workflow templates live in `ci/ci.yml` and `ci/release.yml`; see
 - The extension installed as a dev extension, and `tour-lsp` on `PATH`:
 
   ```sh
-  ./scripts/build-extension.sh
   cargo install --path crates/tour-lsp --locked
   ```
+
+  `./scripts/build-extension.sh` builds the prebuilt release WASM, but Zed's dev
+  install recompiles the extension from the repository root.
 
 - A scratch Zed project. The examples below use a temporary directory, but any
   workspace works. Tour paths resolve relative to the tour file.

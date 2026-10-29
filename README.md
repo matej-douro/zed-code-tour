@@ -40,8 +40,11 @@ core follow-up. The full design, constraints, and open questions live in
 - `languages/tour/config.toml`: Tour language registration for `*.tour.md`.
   Zed requires language metadata in this directory; `extension.toml` only
   references language servers.
-- `crates/zed-code-tour-extension`: extension crate, built as a `cdylib` for
-  `wasm32-wasip2`.
+- `Cargo.toml` and `src/lib.rs`: the repository root is the
+  `zed-code-tour-extension` Cargo package and the workspace root. The extension
+  is built as a `cdylib` for `wasm32-wasip2`. Zed's dev-extension builder
+  compiles the selected directory, so the package manifest, extension manifest,
+  and language assets share the repository root.
 - `crates/tour-lsp`: native language server binary speaking LSP over stdio.
   `crates/tour-lsp/src/tour` contains the `.tour.md` parser and tour model.
   `crates/tour-lsp/src/settings.rs` and `state.rs` contain the validated
@@ -290,8 +293,11 @@ Build the WASM extension:
 ./scripts/build-extension.sh
 ```
 
-The script writes `extension.wasm` at the repository root. That file is build
-output and is not committed.
+The script builds the root `zed-code-tour-extension` package in release mode
+and writes `extension.wasm` at the repository root. That file is build output
+and is not committed. A dev-extension install does not require this prebuild:
+Zed recompiles the selected directory and writes
+`target/wasm32-wasip2/debug/zed_code_tour_extension.wasm` itself.
 
 Install the language server so the extension can find it in `PATH`:
 
@@ -301,9 +307,11 @@ cargo install --path crates/tour-lsp --locked --root "$HOME/.local"
 
 Load the extension in Zed:
 
-1. Run `./scripts/build-extension.sh`.
-2. Open the extensions view with `zed: extensions`.
-3. Click `Install Dev Extension` and choose the repository root.
+1. Open the extensions view with `zed: extensions`.
+2. Click `Install Dev Extension` and choose the repository root, the directory
+   that contains `Cargo.toml`, `extension.toml`, and `languages/`.
+3. Zed compiles `zed-code-tour-extension` from the selected directory and loads
+   the resulting `zed_code_tour_extension.wasm`.
 
 Enable `code_lens: "on"`, `inlay_hints.enabled: true`, and the
 `lsp.tour.settings` block shown in [docs/install.md](docs/install.md). Both

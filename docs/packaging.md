@@ -22,9 +22,13 @@ The workspace version in `Cargo.toml` must match the version in `extension.toml`
 
 ## Build outputs
 
-`./scripts/build-extension.sh` builds the extension crate for `wasm32-wasip2`
-and copies the result to `extension.wasm` at the repository root. A dev
-extension directory needs:
+`./scripts/build-extension.sh` builds the root `zed-code-tour-extension` package
+for `wasm32-wasip2` and copies the release result to `extension.wasm` at the
+repository root. The repository root is both the Cargo package manifest and the
+directory Zed compiles for a dev-extension install; the package name makes Zed
+expect `target/wasm32-wasip2/debug/zed_code_tour_extension.wasm`.
+
+A prebuilt extension directory needs:
 
 - `extension.toml`,
 - `extension.wasm`,

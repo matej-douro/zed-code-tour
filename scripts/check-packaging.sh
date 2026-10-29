@@ -32,8 +32,10 @@ grep -qx 'repository = "https://github.com/matej-douro/zed-code-tour"' extension
 
 [[ -f languages/tour/config.toml ]] ||
     fail "languages/tour/config.toml is required by the extension bundle"
-[[ -f crates/zed-code-tour-extension/src/lib.rs ]] ||
-    fail "the extension crate source is missing"
+grep -qx 'name = "zed-code-tour-extension"' Cargo.toml ||
+    fail "the root Cargo package must be named zed-code-tour-extension"
+[[ -f src/lib.rs ]] ||
+    fail "the extension source is missing"
 [[ -f scripts/build-extension.sh ]] ||
     fail "scripts/build-extension.sh is missing"
 
