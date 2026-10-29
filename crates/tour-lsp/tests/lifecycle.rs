@@ -1,176 +1,8 @@
-use std::{
-    io::{BufRead, BufReader, Read, Write},
-    process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio},
-    thread,
-    time::{Duration, Instant},
-};
+mod support;
 
 use serde_json::{Value, json};
 
-const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
-
-struct LspClient {
-    child: Child,
-    stdin: Option<ChildStdin>,
-    stdout: BufReader<ChildStdout>,
-}
-
-impl LspClient {
-    fn start() -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_tour-lsp"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("failed to start tour-lsp");
-
-        let stdin = child.stdin.take().expect("missing child stdin");
-        let stdout = child.stdout.take().expect("missing child stdout");
-
-        Self {
-            child,
-            stdin: Some(stdin),
-            stdout: BufReader::new(stdout),
-        }
-    }
-
-    fn initialize(&mut self) {
-        self.initialize_with_options(None);
-    }
-
-    fn initialize_with_auto_start(&mut self, auto_start: &str) {
-        self.initialize_with_options(Some(json!({ "auto_start": auto_start })));
-    }
-
-    fn initialize_with_options(&mut self, initialization_options: Option<Value>) {
-        let mut params = json!({
-            "processId": null,
-            "rootUri": null,
-            "capabilities": {},
-        });
-        if let Some(options) = initialization_options {
-            params["initializationOptions"] = options;
-        }
-
-        self.send(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": params,
-        }));
-
-        let initialize_response = self.receive();
-        assert_eq!(initialize_response["id"], 1);
-        assert_eq!(
-            initialize_response["result"]["capabilities"]["inlayHintProvider"],
-            json!(true)
-        );
-        assert_eq!(
-            initialize_response["result"]["capabilities"]["codeLensProvider"],
-            json!({ "resolveProvider": false })
-        );
-        assert_eq!(
-            initialize_response["result"]["capabilities"]["executeCommandProvider"]["commands"],
-            json!([
-                "tour.start",
-                "tour.stop",
-                "tour.next",
-                "tour.previous",
-                "tour.goto",
-                "tour.overview",
-                "tour.backToThread",
-            ])
-        );
-        assert_eq!(
-            initialize_response["result"]["serverInfo"]["name"],
-            "tour-lsp"
-        );
-
-        self.send(json!({
-            "jsonrpc": "2.0",
-            "method": "initialized",
-            "params": {},
-        }));
-    }
-
-    fn send(&mut self, message: Value) {
-        let body = serde_json::to_vec(&message).expect("failed to serialize message");
-        let stdin = self.stdin.as_mut().expect("stdin is closed");
-        write!(stdin, "Content-Length: {}\r\n\r\n", body.len()).expect("failed to write header");
-        stdin.write_all(&body).expect("failed to write body");
-        stdin.flush().expect("failed to flush message");
-    }
-
-    fn receive(&mut self) -> Value {
-        let mut content_length = None;
-        loop {
-            let mut line = String::new();
-            let bytes_read = self
-                .stdout
-                .read_line(&mut line)
-                .expect("failed to read header");
-            assert!(bytes_read > 0, "server closed stdout unexpectedly");
-
-            let line = line.trim_end();
-            if line.is_empty() {
-                break;
-            }
-
-            if let Some(value) = line.strip_prefix("Content-Length:") {
-                content_length = Some(
-                    value
-                        .trim()
-                        .parse::<usize>()
-                        .expect("invalid Content-Length"),
-                );
-            }
-        }
-
-        let content_length = content_length.expect("missing Content-Length header");
-        let mut body = vec![0; content_length];
-        self.stdout
-            .read_exact(&mut body)
-            .expect("failed to read message body");
-
-        serde_json::from_slice(&body).expect("failed to parse message body")
-    }
-
-    fn receive_until_response(&mut self, id: i64) -> Vec<Value> {
-        self.receive_until_result(id).0
-    }
-
-    fn receive_until_result(&mut self, id: i64) -> (Vec<Value>, Value) {
-        let mut messages = Vec::new();
-
-        loop {
-            let message = self.receive();
-            if message.get("method").is_none() && message["id"] == json!(id) {
-                return (messages, message);
-            }
-            messages.push(message);
-        }
-    }
-
-    fn close_stdin(&mut self) {
-        self.stdin.take();
-    }
-
-    fn wait_with_timeout(&mut self) -> ExitStatus {
-        let deadline = Instant::now() + EXIT_TIMEOUT;
-        loop {
-            if let Some(status) = self.child.try_wait().expect("failed to check child status") {
-                return status;
-            }
-
-            if Instant::now() >= deadline {
-                self.child.kill().expect("failed to kill tour-lsp");
-                panic!("tour-lsp did not exit within {EXIT_TIMEOUT:?}");
-            }
-
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-}
+use support::LspClient;
 
 #[test]
 fn completes_initialize_shutdown_and_exit() {
@@ -277,7 +109,7 @@ fn refreshes_hints_and_lenses_for_tour_documents_only() {
         "params": null,
     }));
 
-    let messages = client.receive_until_response(2);
+    let (messages, _) = client.receive_until_response(2);
     let methods: Vec<_> = messages
         .iter()
         .map(|message| message["method"].as_str().expect("server request method"))
@@ -603,7 +435,7 @@ fn navigation_commands_select_exact_utf16_ranges() {
         "params": null,
     }));
 
-    let messages = client.receive_until_response(3);
+    let (messages, _) = client.receive_until_response(3);
     let execute_response = messages
         .iter()
         .find(|message| message["id"] == json!(2))
