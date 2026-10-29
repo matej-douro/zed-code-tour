@@ -29,7 +29,7 @@ core follow-up. The full design, constraints, and open questions live in
 - [x] Character-level range navigation with `window/showDocument`
 - [x] Agent integration, sample tour, and usage docs
 - [x] Thread link support and routing gap
-- [ ] Test harness and manual verification matrix
+- [x] Test harness and manual verification matrix
 - [ ] Packaging, install docs, and CI/release
 
 ## Layout
@@ -57,6 +57,8 @@ core follow-up. The full design, constraints, and open questions live in
   keeps it parseable and verifies that its relative targets exist.
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
 - `scripts/test.sh`: formatting, lint, build, and test checks.
+- `docs/testing.md`: automated suite entry points, the fake LSP harness, and
+  the manual verification matrix.
 
 Zed has no wildcard language registration, so the `tour` server is registered
 explicitly for the Tour language and for each supported source language in
@@ -265,6 +267,10 @@ This runs `cargo fmt --check`, `cargo clippy`, `cargo build`, and
 cargo build --workspace --locked
 cargo test --workspace --locked
 ```
+
+The integration tests under `crates/tour-lsp/tests/` start the real server
+binary over stdio. To inspect the payload assertions and the manual checks that
+need a live Zed editor, see [docs/testing.md](docs/testing.md).
 
 Build the WASM extension:
 
