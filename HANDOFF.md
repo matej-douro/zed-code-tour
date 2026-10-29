@@ -32,7 +32,7 @@ Do not edit source buffers. The tour is virtual text and selection only.
 - Controls are a single-line code lens row using the stock code lens style.
 - No per-hint or per-lens styling is requested. No italic, bold, color, or
   weight configuration.
-- Padding spaces and a left rule (`▎`) make the body block readable. If the
+- Padding spaces make the body block readable. If the
   user enables `inlay_hints.show_background`, the padding gives it a
   rectangular background.
 - Body placement is below the selection by default.
@@ -193,7 +193,9 @@ On `textDocument/inlayHint` for an active source file:
 - For above placement, position it at the start of the selection start line.
 - For the last line with below placement, anchor at the end of the selection
   line and prefix the hint text with `\n`.
-- The hint text is plain text lines. Start each line with the left rule `▎`.
+- The hint text is plain text lines. Start each line with one padding space;
+  there is no left rule. Wrap body lines at 80 columns and keep a six-line
+  budget.
 - Pad lines with spaces to a consistent width for the background rectangle.
 - The hint contains the body only. No controls.
 - End with `\n` so the code line starts on its own display row.
@@ -235,7 +237,8 @@ Visual rules:
 - Use the stock `hint` style for the body.
 - Use the stock code lens style for controls.
 - Do not configure italic, weight, color, or per-item styles.
-- Keep the left rule and padding.
+- Keep the leading padding space and per-line padding. The leading space and
+  `paddingLeft` keep the hint right-biased.
 - Background appears only when the user enables
   `inlay_hints.show_background`.
 - No two-hint styling split. All LSP hints share one style.
@@ -324,7 +327,8 @@ Tour to thread:
 - [ ] `window/showDocument` selects the exact character range.
 - [ ] One multi-line body hint appears below the selection by default.
 - [ ] `placement: "above"` moves the body hint above the selection.
-- [ ] The body hint uses the left rule and padded lines.
+- [ ] The body hint uses one leading padding space and padded lines, with no
+  left rule.
 - [ ] The body hint contains no controls.
 - [ ] The control code lens executes tour commands.
 - [ ] For below placement, the control lens renders between the selected code
@@ -371,7 +375,7 @@ Tour to thread:
    - Start/stop/next/previous/goto.
    - `window/showDocument` with character ranges.
 4. Overlay:
-   - Build body hint text, left rule, padding.
+   - Build body hint text, wrapping, padding.
    - Build control code lens at the line after the selection.
    - Apply below/above placement from settings.
    - Refresh hints and lenses on step change.

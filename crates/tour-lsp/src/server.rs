@@ -1253,7 +1253,7 @@ Next body.
         assert_eq!(hint.position, Position::new(2, 0));
         assert_eq!(hint.kind, None);
         assert_eq!(hint.padding_left, Some(true));
-        assert_eq!(hint_label(&hint), " ▎ Entry body.\n");
+        assert_eq!(hint_label(&hint), " Entry body.\n");
 
         let value = serde_json::to_value(&hint).expect("hint should serialize");
         assert!(value.get("kind").is_none());
@@ -1264,7 +1264,7 @@ Next body.
                 .as_str()
                 .expect("string label")
                 .lines()
-                .all(|line| line.starts_with(" ▎ "))
+                .all(|line| line.starts_with(' ') && !line.contains('▎'))
         );
     }
 
@@ -1273,7 +1273,7 @@ Next body.
         let hint = active_hint(SOURCE, Placement::Above).expect("hint should exist");
 
         assert_eq!(hint.position, Position::new(1, 0));
-        assert_eq!(hint_label(&hint), " ▎ Entry body.\n");
+        assert_eq!(hint_label(&hint), " Entry body.\n");
     }
 
     #[test]
@@ -1281,7 +1281,7 @@ Next body.
         let hint = active_hint("line0\nline1", Placement::Below).expect("hint should exist");
 
         assert_eq!(hint.position, Position::new(1, 5));
-        assert_eq!(hint_label(&hint), "\n ▎ Entry body.\n");
+        assert_eq!(hint_label(&hint), "\n Entry body.\n");
     }
 
     #[test]
@@ -1289,7 +1289,7 @@ Next body.
         let hint = active_hint("line0\nline1\n", Placement::Below).expect("hint should exist");
 
         assert_eq!(hint.position, Position::new(2, 0));
-        assert_eq!(hint_label(&hint), " ▎ Entry body.\n");
+        assert_eq!(hint_label(&hint), " Entry body.\n");
     }
 
     #[test]
@@ -1317,7 +1317,7 @@ Next body.
             .inlay_hints(&inlay_hint_params(SOURCE_URI))
             .expect("active tour should have a hint")
             .remove(0);
-        assert_eq!(hint_label(&hint), " ▎ Entry body.\n");
+        assert_eq!(hint_label(&hint), " Entry body.\n");
 
         let next = server.handle_request(&execute_command_request(2, "tour.next"), &sender);
         assert_command_ok(&next);
@@ -1333,7 +1333,7 @@ Next body.
             .inlay_hints(&inlay_hint_params(SOURCE_URI))
             .expect("new step should have a hint")
             .remove(0);
-        assert_eq!(hint_label(&hint), " ▎ Next body.\n");
+        assert_eq!(hint_label(&hint), " Next body.\n");
 
         let stop = server.handle_request(&execute_command_request(3, "tour.stop"), &sender);
         assert_command_ok(&stop);

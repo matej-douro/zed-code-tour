@@ -144,8 +144,12 @@ fn assert_body_hint(value: &Value, position: (u64, u64), expected: &str) {
         .collect();
     for line in &lines {
         assert!(
-            line.starts_with(" ▎ "),
-            "body line should start with a padding space and the left rule: {line:?}"
+            line.starts_with(' ') && !line.starts_with("  "),
+            "body line should start with one padding space: {line:?}"
+        );
+        assert!(
+            !line.contains('▎'),
+            "body line should not have a left rule: {line:?}"
         );
     }
     if let Some(first) = lines.first() {
@@ -194,7 +198,7 @@ fn layout_below_anchors_the_control_row_between_code_and_body() {
     let hints = result(&response).as_array().expect("inlay hint array");
     assert_eq!(hints.len(), 1);
     assert_eq!(hints[0]["position"], json!({ "line": 2, "character": 0 }));
-    let expected = format!(" ▎ Entry body line one.\n ▎ Second.{}\n", " ".repeat(13));
+    let expected = format!(" Entry body line one.\n Second.{}\n", " ".repeat(13));
     assert_body_hint(&hints[0], (2, 0), &expected);
 
     client.finish();
@@ -223,7 +227,7 @@ fn layout_above_anchors_the_body_and_controls_at_the_selection_start() {
     let (_, response) = client.inlay_hints(SOURCE_URI);
     let hints = result(&response).as_array().expect("inlay hint array");
     assert_eq!(hints.len(), 1);
-    assert_body_hint(&hints[0], (1, 0), " ▎ Entry body.\n");
+    assert_body_hint(&hints[0], (1, 0), " Entry body.\n");
 
     client.finish();
 }
@@ -256,7 +260,7 @@ fn layout_last_line_without_a_trailing_newline_uses_the_end_of_the_line() {
     let hints = result(&response).as_array().expect("inlay hint array");
     assert_eq!(hints.len(), 1);
     assert_eq!(hints[0]["position"], json!({ "line": 1, "character": 5 }));
-    assert_body_hint(&hints[0], (1, 5), "\n ▎ Entry body.\n");
+    assert_body_hint(&hints[0], (1, 5), "\n Entry body.\n");
 
     client.finish();
 }
@@ -284,7 +288,7 @@ fn layout_last_line_with_a_trailing_newline_uses_the_empty_final_line() {
     let (_, response) = client.inlay_hints(SOURCE_URI);
     let hints = result(&response).as_array().expect("inlay hint array");
     assert_eq!(hints.len(), 1);
-    assert_body_hint(&hints[0], (2, 0), " ▎ Entry body.\n");
+    assert_body_hint(&hints[0], (2, 0), " Entry body.\n");
 
     client.finish();
 }
@@ -305,7 +309,7 @@ fn multiple_tours_and_sources_replace_overlays_and_clean_up_on_stop() {
     let messages = start(&mut client);
     assert_show_document(&messages, SOURCE_URI, (1, 2), (1, 8));
     let (_, response) = client.inlay_hints(SOURCE_URI);
-    assert_eq!(hint_labels(&response), vec![" ▎ Entry body.\n"]);
+    assert_eq!(hint_labels(&response), vec![" Entry body.\n"]);
     let (_, response) = client.code_lenses(SOURCE_URI);
     assert_eq!(lens_lines(&response), vec![2, 2, 2]);
     assert_eq!(
@@ -345,7 +349,7 @@ Main body.
     let messages = start(&mut client);
     assert_show_document(&messages, ROUTER_URI, (3, 0), (3, 3));
     let (_, response) = client.inlay_hints(ROUTER_URI);
-    assert_eq!(hint_labels(&response), vec![" ▎ Router body.\n"]);
+    assert_eq!(hint_labels(&response), vec![" Router body.\n"]);
     let (_, response) = client.code_lenses(ROUTER_URI);
     assert_eq!(lens_lines(&response), vec![4, 4, 4]);
     assert_eq!(
@@ -360,7 +364,7 @@ Main body.
     let (_, response) = client.code_lenses(ROUTER_URI);
     assert!(result(&response).as_array().expect("lens array").is_empty());
     let (_, response) = client.inlay_hints(SOURCE_URI);
-    assert_eq!(hint_labels(&response), vec![" ▎ Main body.\n"]);
+    assert_eq!(hint_labels(&response), vec![" Main body.\n"]);
 
     let messages = stop(&mut client);
     assert_eq!(
@@ -429,7 +433,7 @@ fn prompt_starts_without_code_lens_and_inlay_hints_still_render() {
     assert_transition_refreshes(&messages);
 
     let (_, response) = client.inlay_hints(SOURCE_URI);
-    assert_eq!(hint_labels(&response), vec![" ▎ Entry body.\n"]);
+    assert_eq!(hint_labels(&response), vec![" Entry body.\n"]);
 
     let messages = next(&mut client);
     assert_show_document(&messages, ROUTER_URI, (3, 0), (3, 3));
@@ -566,17 +570,17 @@ Last body.
     let messages = start(&mut client);
     assert_show_document(&messages, SOURCE_URI, (0, 0), (0, 4));
     let (_, response) = client.inlay_hints(SOURCE_URI);
-    assert_eq!(hint_labels(&response), vec![" ▎ Tab body.\n"]);
+    assert_eq!(hint_labels(&response), vec![" Tab body.\n"]);
 
     let messages = next(&mut client);
     assert_show_document(&messages, SOURCE_URI, (0, 4), (0, 6));
     let (_, response) = client.inlay_hints(SOURCE_URI);
-    assert_eq!(hint_labels(&response), vec![" ▎ Emoji body.\n"]);
+    assert_eq!(hint_labels(&response), vec![" Emoji body.\n"]);
 
     let messages = next(&mut client);
     assert_show_document(&messages, SOURCE_URI, (1, 4), (1, 8));
     let (_, response) = client.inlay_hints(SOURCE_URI);
-    assert_eq!(hint_labels(&response), vec![" ▎ Accent body.\n"]);
+    assert_eq!(hint_labels(&response), vec![" Accent body.\n"]);
 
     let messages = next(&mut client);
     assert_show_document(&messages, SOURCE_URI, (2, 0), (2, 5));
@@ -584,7 +588,7 @@ Last body.
     let hints = result(&response).as_array().expect("inlay hint array");
     assert_eq!(hints.len(), 1);
     assert_eq!(hints[0]["position"], json!({ "line": 2, "character": 6 }));
-    assert_body_hint(&hints[0], (2, 6), "\n ▎ Last body.\n");
+    assert_body_hint(&hints[0], (2, 6), "\n Last body.\n");
 
     let (_, response) = client.code_lenses(SOURCE_URI);
     assert_eq!(
