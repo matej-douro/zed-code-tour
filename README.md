@@ -11,9 +11,9 @@ tracks one active tour, and the tour file has a start/stop code lens with the
 `always`, `prompt`, and `never` auto-start modes. Character-range navigation
 selects exact UTF-16 ranges with `window/showDocument`. Agent-facing usage docs
 and a parse-tested sample tour are available. The active step is rendered as a
-body inlay hint in the source file. Step controls and thread routing are not
-implemented yet. The full design, constraints, and open questions live in
-[HANDOFF.md](HANDOFF.md).
+body inlay hint in the source file, and the active source file has a step control
+code lens row. Thread routing is not implemented yet. The full design,
+constraints, and open questions live in [HANDOFF.md](HANDOFF.md).
 
 ## Roadmap
 
@@ -23,7 +23,7 @@ implemented yet. The full design, constraints, and open questions live in
 - [x] LSP initialization, settings, and active tour state
 - [x] Start/stop code lens and start flow
 - [x] Body inlay hint renderer
-- [ ] Step control code lens row
+- [x] Step control code lens row
 - [x] Character-level range navigation with `window/showDocument`
 - [x] Agent integration, sample tour, and usage docs
 - [ ] Thread link support and routing gap
@@ -45,9 +45,11 @@ implemented yet. The full design, constraints, and open questions live in
   `crates/tour-lsp/src/settings.rs` and `state.rs` contain the validated
   settings and active-tour state machine. Character-range conversion and
   navigation commands live in `navigation.rs`. `src/hint.rs` builds the body
-  hint. See [docs/lsp-state.md](docs/lsp-state.md),
-  [docs/navigation.md](docs/navigation.md), and
-  [docs/body-hint.md](docs/body-hint.md).
+  hint and `src/controls.rs` builds the source step control row. See
+  [docs/lsp-state.md](docs/lsp-state.md),
+  [docs/navigation.md](docs/navigation.md),
+  [docs/body-hint.md](docs/body-hint.md), and
+  [docs/step-controls.md](docs/step-controls.md).
 - `examples/zed-code-tour.tour.md`: sample tour over this repository. A test
   keeps it parseable and verifies that its relative targets exist.
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
@@ -172,17 +174,16 @@ The agent cannot override `auto_start` per tour. It is the user's setting in
 
 ### Code lens caveat
 
-The tour-file start/stop lens is a code lens, and the planned step controls will
-also use code lens. Code lens is off by default. With code lens off:
+The tour-file start/stop lens and the source step control row are code lenses.
+Code lens is off by default. With code lens off:
 
 - `auto_start: "always"` still starts the tour.
 - `auto_start: "prompt"` still shows the start prompt.
-- The start/stop lens is not rendered, and the step controls (once implemented)
-  will not be available.
+- The start/stop lens is not rendered, and the step controls are not available.
 - `auto_start: "never"` leaves no visible way to start the tour.
 
 Enable code lens in Zed (`"code_lens": "on"`) when you want the manual start lens
-or, once they land, step controls.
+or step controls.
 
 ### Out of scope for v1
 
@@ -283,7 +284,7 @@ language server. The server handles `initialize`, `initialized`, `didOpen`,
 `didChange`, `didClose`, `workspace/didChangeConfiguration`,
 `textDocument/codeLens`, `workspace/executeCommand`, `shutdown`, and `exit`;
 advertises the tour caps and commands; tracks the active tour; returns the
-tour-file start/stop lens and the body inlay hint for the active step. It does
-not return source-file step control lenses yet.
+tour-file start/stop lens, the source-file step control row, and the body inlay
+hint for the active step.
 
 License: TBD

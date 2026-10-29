@@ -14,6 +14,7 @@ use lsp_types::{
 use serde_json::{Value, json};
 
 use crate::{
+    controls::control_lenses,
     hint::body_hint,
     navigation::{PositionError, show_document_params, tour_range_to_lsp},
     settings::{AutoStart, TourSettings},
@@ -235,7 +236,7 @@ impl TourServer {
         if !is_tour {
             self.resolve_active_source_range();
             if is_active_source {
-                self.refresh_inlay_hints(sender)?;
+                self.refresh_all(sender)?;
             }
             return Ok(());
         }
@@ -289,7 +290,7 @@ impl TourServer {
         if !is_tour {
             self.resolve_active_source_range();
             if is_active_source {
-                self.refresh_inlay_hints(sender)?;
+                self.refresh_all(sender)?;
             }
             return Ok(());
         }
@@ -468,10 +469,30 @@ impl TourServer {
         let Some(active) = self.state.active() else {
             return Vec::new();
         };
-        if active.tour_uri != params.text_document.uri {
+        if active.tour_uri == params.text_document.uri {
+            return self.tour_code_lenses(active);
+        }
+        if !active.running || active.source_uri.as_ref() != Some(&params.text_document.uri) {
             return Vec::new();
         }
 
+        let Some(source_range) = active.source_range else {
+            return Vec::new();
+        };
+        let Some(source) = self.documents.get(&params.text_document.uri) else {
+            return Vec::new();
+        };
+
+        control_lenses(
+            active.current_step,
+            active.step_count(),
+            source_range,
+            source,
+            self.settings.placement,
+        )
+    }
+
+    fn tour_code_lenses(&self, active: &crate::state::ActiveTour) -> Vec<CodeLens> {
         let range = Range::new(Position::new(0, 0), Position::new(0, 0));
         if active.running {
             let step_count = active.step_count();
@@ -511,6 +532,16 @@ impl TourServer {
                     self.refresh_all(sender)
                         .map_err(|error| CommandError::Internal(error.to_string()))?;
                 }
+            }
+            "tour.overview" => {
+                let tour_uri = self
+                    .state
+                    .active()
+                    .ok_or(CommandError::NoActiveTour)?
+                    .tour_uri
+                    .clone();
+                let range = Range::new(Position::new(0, 0), Position::new(0, 0));
+                self.send_show_document(tour_uri, range, sender)?;
             }
             "tour.next" => {
                 let (step, step_count) = self.current_step_and_count()?;
@@ -564,7 +595,7 @@ impl TourServer {
         self.documents.remove(&uri);
         self.resolve_active_source_range();
         if is_active_source {
-            self.refresh_inlay_hints(sender)?;
+            self.refresh_all(sender)?;
         }
         Ok(())
     }
@@ -803,6 +834,8 @@ mod tests {
     use crate::state::UpdateOutcome;
 
     const SOURCE_URI: &str = "file:///tours/src/main.rs";
+    const ROUTER_URI: &str = "file:///tours/src/router.rs";
+    const TOUR_URI: &str = "file:///tours/example.tour.md";
     const SOURCE: &str = "line0\nline1\nline2\nline3\nline4\n";
     const TOUR: &str = r#"# Tour
 
@@ -1520,6 +1553,126 @@ Next body.
             &sender,
         );
         assert_eq!(other_tour.response_result.as_ref().expect("ok"), &json!([]));
+    }
+
+    #[test]
+    fn running_tour_returns_the_control_row_for_the_active_source() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        open_navigation_sources(&mut server, &sender);
+        server
+            .handle_notification(&did_open_notification(TOUR_URI, TWO_STEP_TOUR), &sender)
+            .expect("notification should be handled");
+        let _ = receiver.try_iter().count();
+
+        let start = server.handle_request(&execute_command_request(1, "tour.start"), &sender);
+        assert_command_ok(&start);
+        let _ = receiver.try_iter().count();
+
+        let response = server.handle_request(&code_lens_request(2, SOURCE_URI), &sender);
+        assert_eq!(
+            code_lens_titles(&response),
+            vec!["◀ Prev", "1/2 | Next ▶", "Overview", "Stop"]
+        );
+        assert_eq!(
+            code_lens_commands(&response),
+            vec![
+                crate::controls::PREVIOUS_COMMAND,
+                crate::controls::NEXT_COMMAND,
+                crate::controls::OVERVIEW_COMMAND,
+                crate::controls::STOP_COMMAND,
+            ]
+        );
+        for lens in response
+            .response_result
+            .as_ref()
+            .expect("code lens result")
+            .as_array()
+            .expect("code lens array")
+        {
+            assert_eq!(
+                lens["range"]["start"]["line"],
+                json!(2),
+                "below placement should anchor after the selected line"
+            );
+            assert_eq!(lens["command"].get("arguments"), None);
+        }
+
+        let next = server.handle_request(&execute_command_request(3, "tour.next"), &sender);
+        assert_command_ok(&next);
+        let requests = drain_server_requests(&receiver);
+        assert!(
+            requests
+                .iter()
+                .any(|(_, method, _)| method == "workspace/codeLens/refresh"),
+            "step change should refresh the control row"
+        );
+
+        let response = server.handle_request(&code_lens_request(4, SOURCE_URI), &sender);
+        assert!(
+            response
+                .response_result
+                .as_ref()
+                .expect("code lens result")
+                .as_array()
+                .expect("code lens array")
+                .is_empty(),
+            "a source that is no longer the active step should have no control row"
+        );
+
+        let response = server.handle_request(&code_lens_request(5, ROUTER_URI), &sender);
+        assert_eq!(
+            code_lens_titles(&response),
+            vec!["◀ Prev", "2/2 | Next ▶", "Overview", "Stop"]
+        );
+
+        let stop = server.handle_request(&execute_command_request(6, "tour.stop"), &sender);
+        assert_command_ok(&stop);
+        let requests = drain_server_requests(&receiver);
+        assert!(
+            requests
+                .iter()
+                .any(|(_, method, _)| method == "workspace/codeLens/refresh"),
+            "stop should refresh the control row away"
+        );
+        let response = server.handle_request(&code_lens_request(7, ROUTER_URI), &sender);
+        assert!(
+            response
+                .response_result
+                .as_ref()
+                .expect("code lens result")
+                .as_array()
+                .expect("code lens array")
+                .is_empty(),
+            "a stopped tour should have no control row"
+        );
+    }
+
+    #[test]
+    fn overview_shows_the_tour_file_at_the_top() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        open_navigation_sources(&mut server, &sender);
+        server
+            .handle_notification(&did_open_notification(TOUR_URI, TWO_STEP_TOUR), &sender)
+            .expect("notification should be handled");
+        let _ = receiver.try_iter().count();
+        let start = server.handle_request(&execute_command_request(1, "tour.start"), &sender);
+        assert_command_ok(&start);
+        let _ = receiver.try_iter().count();
+
+        let response = server.handle_request(&execute_command_request(2, "tour.overview"), &sender);
+        assert_command_ok(&response);
+        let requests = drain_server_requests(&receiver);
+        assert_show_document(&requests, TOUR_URI, (0, 0), (0, 0));
+        assert!(
+            requests
+                .iter()
+                .all(|(_, method, _)| method != "workspace/inlayHint/refresh"),
+            "overview only changes focus and should not refresh overlays"
+        );
     }
 
     #[test]

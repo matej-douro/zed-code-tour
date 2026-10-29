@@ -112,7 +112,7 @@ fn truncate_chars(line: &str, width: usize) -> String {
     truncated
 }
 
-fn source_line_count(source: &str) -> u32 {
+pub(crate) fn source_line_count(source: &str) -> u32 {
     u32::try_from(source.split('\n').count()).unwrap_or(u32::MAX)
 }
 
