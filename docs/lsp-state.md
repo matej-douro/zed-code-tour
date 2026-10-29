@@ -22,7 +22,8 @@ handled. `tour.start` starts an inactive tour at step 0, restarts a running tour
 at step 0, and selects that range. `tour.stop` marks the tour inactive. The
 navigation commands select exact UTF-16 ranges; see
 [navigation.md](navigation.md). `tour.overview` focuses the active tour file at
-the top. `tour.backToThread` remains an advertised no-op until issue #10.
+the top. `tour.backToThread` focuses the recorded thread link line and explains
+the v1 routing fallback; see [thread-link.md](thread-link.md).
 
 ## Code lens
 
@@ -134,7 +135,7 @@ source document drops its cached text rather than keeping stale content.
 The server holds at most one active tour with:
 
 - tour document URI,
-- parsed tour, including ordered steps,
+- parsed tour, including ordered steps and the optional thread link,
 - zero-based current step index,
 - resolved source URI for the current step,
 - optional UTF-16-correct source range resolved from source text,

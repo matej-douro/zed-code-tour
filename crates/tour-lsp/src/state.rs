@@ -3,7 +3,7 @@ use std::fmt;
 use lsp_types::{Range, Uri};
 
 use crate::{
-    tour::{ParseError, Tour, TourStep, parse_tour},
+    tour::{ParseError, ThreadLink, Tour, TourStep, parse_tour},
     uri::{file_path, file_uri},
 };
 
@@ -36,6 +36,10 @@ impl ActiveTour {
 
     pub fn current_step(&self) -> Option<&TourStep> {
         self.tour.steps.get(self.current_step)
+    }
+
+    pub fn thread_link(&self) -> Option<&ThreadLink> {
+        self.tour.thread_link.as_ref()
     }
 
     pub fn step_count(&self) -> usize {
@@ -183,6 +187,13 @@ mod tests {
 [three](src/three.rs#L7:1-L7:9)
 "#;
     const INVALID_TOUR: &str = "# Invalid tour\n\n## 1. Missing link\n\nNo target link.\n";
+    const THREAD_TOUR: &str = r#"# Thread tour
+
+[Back to the thread](zed:///agent/thread/session-1?name=Auth)
+
+## 1. One
+[one](src/one.rs#L1:1-L1:4)
+"#;
 
     fn uri(value: &str) -> Uri {
         Uri::from_str(value).expect("valid URI")
@@ -224,6 +235,27 @@ mod tests {
         );
         assert_eq!(active.source_range, None);
         assert!(!active.running);
+    }
+
+    #[test]
+    fn active_tour_exposes_the_optional_thread_link() {
+        let mut state = TourState::default();
+        state
+            .open_tour(file_uri("file:///tours/thread.tour.md"), THREAD_TOUR)
+            .expect("thread tour should open");
+
+        let link = state
+            .active()
+            .and_then(ActiveTour::thread_link)
+            .expect("thread link should be exposed");
+        assert_eq!(link.text, "Back to the thread");
+        assert_eq!(link.uri, "zed:///agent/thread/session-1?name=Auth");
+        assert_eq!(link.line, 3);
+
+        state
+            .open_tour(file_uri("file:///tours/first.tour.md"), FIRST_TOUR)
+            .expect("tour without a thread link should open");
+        assert!(state.active().and_then(ActiveTour::thread_link).is_none());
     }
 
     #[test]

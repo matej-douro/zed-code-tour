@@ -91,6 +91,7 @@ pub fn parse_tour(tour_path: impl AsRef<Path>, source: &str) -> Result<Tour, Vec
             thread_link = Some(ThreadLink {
                 text: link.text,
                 uri: link.destination,
+                line: line.number,
             });
         }
 
@@ -844,6 +845,7 @@ The program starts here, then calls the router at line 14.
             Some(ThreadLink {
                 text: "Back to the thread".to_owned(),
                 uri: "zed:///agent/thread/session-1?name=Auth".to_owned(),
+                line: 3,
             })
         );
         assert_eq!(tour.steps.len(), 1);
@@ -1300,6 +1302,7 @@ Visible body.
             Some(ThreadLink {
                 text: "thread".to_owned(),
                 uri: "zed:///agent/thread/session-1?name=Auth".to_owned(),
+                line: 3,
             })
         );
     }
@@ -1322,6 +1325,7 @@ Visible body.
             Some(ThreadLink {
                 text: "thread".to_owned(),
                 uri: "zed:///agent/thread/session-1".to_owned(),
+                line: 6,
             })
         );
         assert_eq!(tour.steps[0].body, "");
@@ -1409,6 +1413,7 @@ Visible body.
             Some(ThreadLink {
                 text: "thread".to_owned(),
                 uri: "zed:///agent/thread/session-1".to_owned(),
+                line: 4,
             })
         );
         assert_eq!(tour.steps[0].body, "Visible body.");
