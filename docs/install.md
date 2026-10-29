@@ -65,20 +65,27 @@ running it without an LSP client.
 ./scripts/build-extension.sh
 ```
 
-The script builds `crates/zed-code-tour-extension` for `wasm32-wasip2` and
-writes `extension.wasm` at the repository root. The WASM file is build output
-and is not committed.
+The script builds the root `zed-code-tour-extension` package in release mode
+for `wasm32-wasip2` and writes `extension.wasm` at the repository root. The WASM
+file is build output and is not committed.
+
+A dev-extension install does not need this prebuild. Zed's dev-extension builder
+reads the selected directory's root `Cargo.toml`, builds the
+`zed-code-tour-extension` package, and loads
+`target/wasm32-wasip2/debug/zed_code_tour_extension.wasm` from that directory.
 
 ## 4. Install the dev extension
 
 1. In Zed, run `zed: extensions`.
 2. Click `Install Dev Extension`.
-3. Select the repository root, the directory that contains `extension.toml`,
-   `extension.wasm`, and `languages/`.
+3. Select the repository root, the directory that contains `Cargo.toml`,
+   `extension.toml`, and `languages/`.
 
-After changing Rust code, run `./scripts/build-extension.sh` and use
-`Rebuild Dev Extension` in the extensions view. A plain Zed restart does not
-rebuild the WASM.
+Zed recompiles the extension from the selected directory on install. A prebuilt
+`extension.wasm` is not used for a source dev-extension install.
+
+After changing Rust code, use `Rebuild Dev Extension` in the extensions view. A
+plain Zed restart does not rebuild the WASM.
 
 ## 5. Enable the required Zed settings
 

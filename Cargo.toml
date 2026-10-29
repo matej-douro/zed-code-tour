@@ -1,8 +1,22 @@
+[package]
+name = "zed-code-tour-extension"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+test = false
+
+[dependencies]
+zed_extension_api.workspace = true
+
 [workspace]
 resolver = "2"
 members = [
     "crates/tour-lsp",
-    "crates/zed-code-tour-extension",
 ]
 
 [workspace.package]
