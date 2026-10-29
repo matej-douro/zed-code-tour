@@ -267,7 +267,12 @@ Implementation:
 - Pass the settings JSON to the LSP as initialization options, or have the LSP
   request configuration.
 - Provide `language_server_initialization_options_schema` for validation and
-  completion under `lsp.tour.settings`.
+  completion under `lsp.tour.settings`. The released `zed_extension_api` 0.7.0
+  does not expose this hook, so the current extension passes settings through
+  `language_server_initialization_options` and
+  `language_server_workspace_configuration` only. The schema hooks are deferred
+  to a draft PR pinned to extension API 0.8.0 and are cosmetic settings-editor
+  validation, not runtime plumbing.
 - If a first-class `tour` settings section is required, that is a core or
   context-server-settings change.
 

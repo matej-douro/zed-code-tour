@@ -109,13 +109,13 @@ the default for that field. Unknown fields are ignored. Values are
 case-sensitive. A `workspace/didChangeConfiguration` notification revalidates
 the settings and refreshes the overlays when the tour is active.
 
-The extension returns the settings schema from both the initialization options
-schema hook and the workspace configuration schema hook. `lsp.tour.settings`
-uses the workspace configuration schema in Zed, while the initialization options
-schema documents the same options where they are passed to the server. The
-`zed_extension_api` crate `0.7.0` does not expose either schema hook, so the
-extension API is pinned to the Zed revision used by `HANDOFF.md` until `0.8.0`
-is published.
+The current extension uses released `zed_extension_api` 0.7.0, which does not
+expose the initialization options and workspace configuration schema hooks. The
+settings still reach the server through
+`language_server_initialization_options` and
+`language_server_workspace_configuration`, so `lsp.tour.settings` works on Zed
+Stable and Preview. The schema hooks are cosmetic settings-editor validation and
+are deferred to a draft PR that pins extension API 0.8.0.
 
 A first-class top-level `tour` settings section is out of scope. It would need a
 core settings or context-server-settings change.

@@ -84,8 +84,9 @@ workflow templates live in `ci/ci.yml` and `ci/release.yml`; see
 
 ### Prerequisites
 
-- A Zed build that supports the pinned extension API revision used by
-  `Cargo.toml` (see the Development section in `README.md`).
+- Zed Stable, Preview, or a newer development build. The extension uses
+  released `zed_extension_api` 0.7.0, the newest extension API supported by
+  Stable and Preview. See the Development section in `README.md`.
 - The extension installed as a dev extension, and `tour-lsp` on `PATH`:
 
   ```sh
