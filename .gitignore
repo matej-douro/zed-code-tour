@@ -9,6 +9,10 @@
 /build/
 /dist/
 
+# Python tooling output
+__pycache__/
+*.pyc
+
 # Node tooling output
 node_modules/
 npm-debug.log*

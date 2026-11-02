@@ -15,7 +15,9 @@ and a parse-tested sample tour are available. The active step is rendered as a
 body inlay hint in the source file, and the active source file has a step control
 code lens row. A tour thread link is stored and exposed, and the control row can
 focus it and explain the current routing gap. Full thread routing needs a Zed
-core follow-up. The full design, constraints, and open questions live in
+core follow-up. A headless end-to-end harness loads the built extension into a
+real Zed window under Xvfb, asserts the LSP transcript, and saves screenshots.
+The full design, constraints, and open questions live in
 [HANDOFF.md](HANDOFF.md).
 
 ## Roadmap
@@ -31,6 +33,7 @@ core follow-up. The full design, constraints, and open questions live in
 - [x] Agent integration, sample tour, and usage docs
 - [x] Thread link support and routing gap
 - [x] Test harness and manual verification matrix
+- [x] Headless Zed end-to-end harness
 - [x] Packaging, install docs, and CI/release
 
 ## Layout
@@ -62,6 +65,8 @@ core follow-up. The full design, constraints, and open questions live in
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
 - `scripts/check-packaging.sh`: verifies manifest metadata and version sync.
 - `scripts/test.sh`: packaging check, formatting, lint, build, and tests.
+- `scripts/e2e-zed.sh` and `scripts/e2e_zed.py`: headless end-to-end run
+  against a pinned Zed release under Xvfb. See [docs/e2e.md](docs/e2e.md).
 - `scripts/package-release.sh`: builds the host release artifacts under `dist/`.
 - `scripts/bump-version.sh`: updates the extension and workspace versions.
 - `docs/install.md`: dev extension install, local `tour-lsp` setup, and the
@@ -72,8 +77,10 @@ core follow-up. The full design, constraints, and open questions live in
   notes template.
 - `docs/ci.md`: CI/release workflow status, the workflow-scope blocker, and
   the one-step enable procedure tracked in #25.
-- `docs/testing.md`: automated suite entry points, the fake LSP harness, and
-  the manual verification matrix.
+- `docs/testing.md`: automated suite entry points, the fake LSP harness,
+  the headless Zed run, and the manual verification matrix.
+- `docs/e2e.md`: headless Zed end-to-end case table, dependencies, and
+  artifacts.
 
 Zed has no wildcard language registration, so the `tour` server is registered
 explicitly for the Tour language and for each supported source language in
@@ -284,8 +291,16 @@ cargo test --workspace --locked
 ```
 
 The integration tests under `crates/tour-lsp/tests/` start the real server
-binary over stdio. To inspect the payload assertions and the manual checks that
-need a live Zed editor, see [docs/testing.md](docs/testing.md).
+binary over stdio. Run the headless end-to-end checks against a pinned Zed
+release with:
+
+```sh
+./scripts/e2e-zed.sh
+```
+
+To inspect the payload assertions, the headless cases, and the manual checks
+that need a live Zed editor, see [docs/testing.md](docs/testing.md) and
+[docs/e2e.md](docs/e2e.md).
 
 Build the WASM extension:
 

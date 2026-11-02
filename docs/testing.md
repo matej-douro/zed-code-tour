@@ -1,15 +1,18 @@
 # Testing and manual verification
 
-The project has two test paths:
+The project has three test paths:
 
 1. An automated suite that runs the Rust unit tests and a fake LSP client over
    stdio against the real `tour-lsp` binary.
-2. A manual verification matrix for behavior that needs a live Zed editor:
-   overlay ordering, settings gates, scrolling, soft wrap, and thread links.
+2. A headless end-to-end run that loads the built extension into a real Zed
+   window under Xvfb, drives the extension through Zed, asserts the LSP
+   transcript, and saves screenshots.
+3. A manual verification matrix for behavior that still needs a person at a
+   live editor: painting details, scrolling, soft wrap, and thread links.
 
-The automated suite covers protocol payloads and layout anchors. It cannot prove
-how Zed paints the payloads. The manual matrix covers that gap and records the
-result for a release check.
+The automated suite covers protocol payloads and layout anchors. The headless
+run covers the extension-to-Zed wiring and records what was painted. The manual
+matrix is the release sign-off for the remaining visual and interactive cases.
 
 ## Automated suite
 
@@ -80,6 +83,24 @@ workflow templates live in `ci/ci.yml` and `ci/release.yml`; see
 [ci.md](ci.md) for the workflow-scope blocker and the one-step move into
 `.github/workflows/`. The CI job runs `./scripts/test.sh` and
 `./scripts/build-extension.sh`.
+
+### Headless Zed end-to-end run
+
+```sh
+./scripts/e2e-zed.sh
+```
+
+The run downloads a pinned Zed release, installs the built extension into an
+isolated profile, and exercises the settings gates, placement modes, last-line
+fallback, relative paths, Unicode ranges, and auto-start modes. It asserts the
+LSP transcript and the extension index, and saves one screenshot per case under
+`target/e2e/runs/`. See [e2e.md](e2e.md) for the case table, dependencies, and
+artifacts.
+
+The run is separate from `./scripts/test.sh` because it needs Xvfb, a software
+Vulkan driver, and a Zed download. Use it before the manual pass. Most matrix
+rows below have a protocol-level counterpart in `scripts/e2e_zed.py`; the manual
+pass remains the sign-off for how Zed paints and reacts.
 
 ## Manual verification
 
