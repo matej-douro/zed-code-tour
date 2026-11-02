@@ -137,6 +137,20 @@ launched Zed, reinstall the binary, and restart Zed.
 
 For the full automated and manual test procedure, see [testing.md](testing.md).
 
+## Optional: install the Zed agent skill
+
+`skills/SKILL.md` teaches a Zed agent how to write and start tours. Zed loads
+skills from `.agents/skills/<name>/SKILL.md`, and extensions cannot register
+them, so install it as a file:
+
+```sh
+mkdir -p ~/.agents/skills/zed-code-tour
+cp skills/SKILL.md ~/.agents/skills/zed-code-tour/SKILL.md
+```
+
+Use `<project>/.agents/skills/zed-code-tour/SKILL.md` for a project-local copy.
+Start a new agent thread after copying. See [skills/README.md](../skills/README.md).
+
 ## Uninstall
 
 1. Remove the dev extension from `zed: extensions`.
