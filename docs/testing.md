@@ -97,10 +97,15 @@ LSP transcript and the extension index, and saves one screenshot per case under
 `target/e2e/runs/`. See [e2e.md](e2e.md) for the case table, dependencies, and
 artifacts.
 
+The headless cases also drive the UI: OCR plus `xdotool` click the real Next,
+Previous, Overview, Back to thread, and Stop lenses; answer the auto-start
+prompt; switch tabs; open a second tour; resize the window; and scroll the
+editor. That covers M01-M17 and M19-M21 at the protocol and interaction level.
+Only M18's agent-output `ResourceLink` still needs an agent.
+
 The run is separate from `./scripts/test.sh` because it needs Xvfb, a software
-Vulkan driver, and a Zed download. Use it before the manual pass. Most matrix
-rows below have a protocol-level counterpart in `scripts/e2e_zed.py`; the manual
-pass remains the sign-off for how Zed paints and reacts.
+Vulkan driver, `tesseract`, and a Zed download. Use it before the manual pass.
+The manual pass remains the sign-off for painting details.
 
 ## Manual verification
 
@@ -185,6 +190,32 @@ Second body.
 Open `basic.tour.md` in Zed as a worktree file. For the last-line and Unicode
 cases, create a one-step tour whose target points at the relevant file and line,
 or edit the target link in `basic.tour.md`.
+
+### Headless e2e cases by matrix row
+
+| Matrix row | E2E case |
+| --- | --- |
+| M01 | `below` |
+| M02 | `above` |
+| M03 | `below`, `navigate` |
+| M04 | `last-line`, `last-line-newline` |
+| M05 | `below` (background), `background-off` |
+| M06 | `below` |
+| M07 | `inlay-off`, `inlay-off-navigate` |
+| M08 | `below`, `never`, `navigate` |
+| M09 | `code-lens-off`, `prompt-code-lens-off` |
+| M10 | `below` |
+| M11 | `prompt`, `prompt-accept`, `prompt-decline` |
+| M12 | `never` |
+| M13 | `never`, `prompt` (Tour tab and language id) |
+| M14 | `long-body`, `narrow` |
+| M15 | `scroll` |
+| M16 | `multiple-tours`, `navigate` (stop cleanup) |
+| M17 | `relative-dotdot`, `absolute-path`, `unicode`, `unicode-cafe`, `unicode-last` |
+| M18 | `thread-link` (fallback); agent output remains manual |
+| M19 | `last-line-newline` |
+| M20 | `last-line`, `unicode-last` |
+| M21 | `unicode`, `unicode-cafe`, `unicode-last` |
 
 ### Matrix
 

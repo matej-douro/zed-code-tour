@@ -14,18 +14,21 @@ an isolated profile, starts `tour-lsp` from the login-shell `PATH`, opens a
 - a screenshot of the rendered window.
 
 It then asserts the transcript: settings passed to the server, the tour
-`didOpen` language, `window/showDocument` selections, code lens titles and
-anchors, inlay hint positions and labels, prompt requests, and the settings gates
-for code lens and inlay hints. The screenshots are saved for visual inspection;
-they are not compared pixel by pixel.
+`didOpen` language, the ordered `window/showDocument` sequence, code lens titles
+and anchors, inlay hint positions and labels, prompt requests, and the settings
+gates for code lens and inlay hints. Interaction cases also OCR the screenshots,
+click real controls, and assert the resulting UI text and background pixels.
+Screenshots are saved for visual inspection; they are not golden images.
 
 ## Requirements
 
-- Linux with Xvfb, `xwd` (`x11-apps`), and `xwdtopnm`/`pnmtopng` (`netpbm`).
+- Linux with Xvfb, `xwd` (`x11-apps`), `xwdtopnm`/`pnmtopng` (`netpbm`),
+  `xdotool`, and Tesseract (`tesseract-ocr`).
 - A Vulkan software driver. On Debian and Ubuntu:
 
   ```sh
-  sudo apt-get install -y xvfb x11-apps netpbm libvulkan1 mesa-vulkan-drivers
+  sudo apt-get install -y xvfb x11-apps netpbm xdotool tesseract-ocr \
+    libvulkan1 mesa-vulkan-drivers
   ```
 
 - Python 3.10 or newer.
@@ -63,25 +66,60 @@ Useful flags:
 
 | Case | What it checks |
 | --- | --- |
-| `below` | Body hint and control row are anchored below the selected range. |
-| `above` | Body hint and control row are anchored above the selected range. |
-| `last-line` | The end-of-line fallback on a last line without a trailing newline. |
+| `below` | Body hint and control row below the selected range, with a hint background. |
+| `above` | Body hint and control row above the selected range. |
+| `last-line` | End-of-line fallback on a last line without a trailing newline. |
+| `last-line-newline` | The empty final line is used when the file ends with a newline. |
 | `relative-dotdot` | Targets with `..` resolve against the tour directory. |
+| `absolute-path` | Absolute targets resolve without the tour directory. |
+| `unicode` | Emoji selection uses UTF-16 columns while tour columns count scalars. |
+| `unicode-cafe` | Accented BMP text selects the exact scalar range. |
+| `unicode-last` | Last-line fallback after a multibyte character. |
+| `long-body` | Body wrapping and the six-line budget with an ellipsis. |
+| `background-off` | `show_background: false` removes the hint background. |
 | `code-lens-off` | The tour starts and the body hint renders with code lens disabled. |
 | `inlay-off` | The control row renders and the tour starts with inlay hints disabled. |
+| `inlay-off-navigate` | Next still moves the tour when inlay hints are disabled. |
 | `prompt` | `auto_start: prompt` sends `window/showMessageRequest` and does not start. |
+| `prompt-accept` | Clicking `Start tour` starts the tour and renders the overlays. |
+| `prompt-decline` | Clicking `Not now` leaves the tour inactive. |
+| `prompt-code-lens-off` | Prompt start works when code lens is disabled. |
 | `never` | `auto_start: never` leaves the tour inactive and shows the start lens. |
-| `unicode` | Tour columns count Unicode scalars; the selection uses UTF-16 columns. |
+| `navigate` | Next, Previous, Overview, tab switching, and Stop via real lens clicks. |
+| `thread-link` | `Back to thread` focuses the link line and explains the static fallback. |
+| `multiple-tours` | Opening a second tour replaces the active tour and clears old overlays. |
+| `scroll` | Scrolling down and back keeps the hint attached to the viewport. |
+| `narrow` | Resizing a window with soft wrap keeps a long hint inside the edge. |
 
-The prompt case stops at the prompt request. The action response path is covered
-by `crates/tour-lsp/tests/lifecycle.rs`, so the headless run does not have to
-click a notification.
+## Interaction
+
+Cases with actions click real UI controls. The harness OCRs the current
+screenshot with Tesseract, finds the requested word inside an optional screen
+region, and clicks its center with `xdotool`. After each action it waits for the
+expected `window/showDocument` selection and saves `<action>.png`.
+
+The assertions cover:
+
+- the ordered `window/showDocument` sequence, including tour-file overview and
+  thread-link targets,
+- source and tour-file code lens titles in the final state,
+- code lens and inlay hint cleanup after Stop,
+- OCR text that must appear or disappear after an action,
+- the notification action row for `Start tour` and `Not now`,
+- the hint background color with `show_background` on and off,
+- hint movement when scrolling, and
+- the hint staying inside a resized window.
+
+The prompt cases click the notification action row rather than the message line,
+which also contains the words `Start tour`.
 
 ## Artifacts
 
 Each case directory contains:
 
 - `screen.png`: the rendered Zed window at screenshot time.
+- `<action>.png`: one screenshot per UI action, for example `next.png`,
+  `stop.png`, or `narrow-window.png`.
 - `Zed.log`: the full Zed log, including the LSP transcript.
 - `lsp.jsonl`: the parsed LSP messages as one JSON object per line, with a
   `direction` field.
@@ -133,6 +171,15 @@ implementation.
 
 Run the single case with `--case <name>` and inspect `lsp.jsonl` and
 `screen.png` before adding it to the full run.
+
+## Limitations
+
+M18's agent-output `ResourceLink` path still needs an agent and is not covered
+here; the `thread-link` case covers the `Back to thread` fallback. The
+screenshots are not compared against golden images, so painting regressions that
+do not change text or background pixels still need a visual check. The scroll
+case asserts that the hint moves with the viewport, not a subjective judgment
+about scroll smoothness.
 
 ## CI
 
