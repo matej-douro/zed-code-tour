@@ -16,7 +16,8 @@ body inlay hint in the source file, and the active source file has a step contro
 code lens row. A tour thread link is stored and exposed, and the control row can
 focus it and explain the current routing gap. Full thread routing needs a Zed
 core follow-up. A headless end-to-end harness loads the built extension into a
-real Zed window under Xvfb, asserts the LSP transcript, and saves screenshots.
+real Zed window under Xvfb, asserts the LSP transcript, drives real code lens and
+prompt interactions, and saves screenshots.
 The full design, constraints, and open questions live in
 [HANDOFF.md](HANDOFF.md).
 
@@ -66,7 +67,8 @@ The full design, constraints, and open questions live in
 - `scripts/check-packaging.sh`: verifies manifest metadata and version sync.
 - `scripts/test.sh`: packaging check, formatting, lint, build, and tests.
 - `scripts/e2e-zed.sh` and `scripts/e2e_zed.py`: headless end-to-end run
-  against a pinned Zed release under Xvfb. See [docs/e2e.md](docs/e2e.md).
+  against a pinned Zed release under Xvfb, including OCR-driven UI
+  interactions. See [docs/e2e.md](docs/e2e.md).
 - `scripts/package-release.sh`: builds the host release artifacts under `dist/`.
 - `scripts/bump-version.sh`: updates the extension and workspace versions.
 - `docs/install.md`: dev extension install, local `tour-lsp` setup, and the
