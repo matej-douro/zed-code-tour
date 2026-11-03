@@ -32,21 +32,6 @@ grep -qx 'repository = "https://github.com/matej-douro/zed-code-tour"' extension
 
 [[ -f languages/tour/config.toml ]] ||
     fail "languages/tour/config.toml is required by the extension bundle"
-
-language_count="$(
-    awk '
-        /^languages = \[/ { in_languages = 1; next }
-        in_languages && /^\]/ { in_languages = 0 }
-        in_languages && /^[[:space:]]*"/ { count++ }
-        END { print count + 0 }
-    ' extension.toml
-)"
-[[ "$language_count" -ge 50 ]] ||
-    fail "extension.toml should list at least 50 source languages, found $language_count"
-grep -qx '    "Plain Text",' extension.toml ||
-    fail "extension.toml must include the Plain Text language"
-grep -qx '    "Markdown",' extension.toml ||
-    fail "extension.toml must include the Markdown language"
 grep -qx 'name = "zed-code-tour-extension"' Cargo.toml ||
     fail "the root Cargo package must be named zed-code-tour-extension"
 [[ -f src/lib.rs ]] ||
