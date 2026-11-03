@@ -52,6 +52,8 @@ def magick(*args: str) -> None:
 
 def latest_run() -> Path:
     root = REPO_ROOT / "target" / "showcase-runs" / "zed-code-tour"
+    if not root.exists():
+        raise SystemExit("no showcase run found; run scripts/showcase/record.py first")
     runs = sorted((path for path in root.iterdir() if (path / "timeline.json").exists()), reverse=True)
     if not runs:
         raise SystemExit("no showcase run with a timeline.json found")
