@@ -4,9 +4,8 @@ While a tour is running, the language server returns one single-line control
 row for the active step's source file. It uses the stock code lens style. There
 is no per-lens styling, no inlay-part fallback, and no source-buffer edit.
 
-The row is implemented by issue #7. The tour-file start/stop/resume lens is
-described in [lsp-state.md](lsp-state.md), and the body hint in
-[body-hint.md](body-hint.md).
+The tour-file start/stop/resume lens is described in [lsp-state.md](lsp-state.md),
+and the body hint in [body-hint.md](body-hint.md).
 
 ## Row content
 
@@ -84,15 +83,12 @@ while the tour is running.
 
 ## Overview
 
-For v1, `tour.overview` focuses the active tour document at line 0, character 0
+`tour.overview` focuses the active tour document at line 0, character 0
 with `window/showDocument` and `takeFocus: true`. It does not change the current
 step or the running flag, and it does not refresh overlays because nothing in
 the tour state changed. The active step stays selected, so `tour.resume`, the
 tour-file `▶ Resume` lens, Previous, Next, or `tour.goto` returns focus to its
 source file. Running `tour.start` again restarts the tour at step 0.
-
-Opening the tour file instead of a generated index keeps v1 simple and needs no
-custom panel or webview. A richer overview is out of scope.
 
 ## Refresh and removal
 
@@ -106,11 +102,11 @@ Opening, changing, or closing the active source document also refreshes both
 hints and lenses, so the row appears, moves, or disappears with the document.
 Hints are the exception while a step change is still being shown: the control
 row is refreshed immediately, but the hint refresh waits until Zed has scrolled
-to the new selection (issue #42).
+to the new selection.
 
 ## Code lens off
 
-Step controls require code lens in v1. There is no inlay-part fallback. With
+Step controls require code lens. There is no inlay-part fallback. With
 code lens off, the tour can still start through `auto_start: "always"` or the
 start prompt, and the body hint still renders if inlay hints are enabled, but no
 step controls are shown. Enabling code lens (`code_lens: "on"`) restores the

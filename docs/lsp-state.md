@@ -26,7 +26,7 @@ stopped tour continues where it left off and a running tour returns from the
 overview to its open step. `tour.stop` marks the tour inactive. The navigation
 commands select exact UTF-16 ranges; see [navigation.md](navigation.md).
 `tour.overview` focuses the active tour file at the top. `tour.backToThread`
-focuses the recorded thread link line and explains the v1 routing fallback; see
+focuses the recorded thread link line and explains the routing fallback; see
 [thread-link.md](thread-link.md).
 
 ## Code lens
@@ -123,16 +123,12 @@ the default for that field. Unknown fields are ignored. Values are
 case-sensitive. A `workspace/didChangeConfiguration` notification revalidates
 the settings and refreshes the overlays when the tour is active.
 
-The current extension uses released `zed_extension_api` 0.7.0, which does not
+The extension uses released `zed_extension_api` 0.7.0, which does not
 expose the initialization options and workspace configuration schema hooks. The
 settings still reach the server through
 `language_server_initialization_options` and
 `language_server_workspace_configuration`, so `lsp.tour.settings` works on Zed
-Stable and Preview. The schema hooks are cosmetic settings-editor validation and
-are deferred to a draft PR that pins extension API 0.8.0.
-
-A first-class top-level `tour` settings section is out of scope. It would need a
-core settings or context-server-settings change.
+Stable and Preview.
 
 ## Documents
 
@@ -160,7 +156,7 @@ from the current source text in `navigation.rs`, so ranges never fall back to a
 naive character-column conversion.
 
 Opening a valid `.tour.md` document replaces the previous tour and selects step
-0. The tour is not running until the start flow in issue #5 starts it. A tour
+0. The tour is not running until the start flow starts it. A tour
 with no steps is still parsed and tracked, but it has no resolved source URI or
 range until a step is added.
 
@@ -178,8 +174,7 @@ Multiple-open policy:
 
 Multi-workspace policy: there is one state per language server instance. The
 implementation assumes a single workspace per server. If one server is reused
-across workspaces, the last opened tour across those workspaces wins. Per
-workspace state is left to a later issue.
+across workspaces, the last opened tour across those workspaces wins.
 
 ## Refreshes
 
@@ -190,7 +185,7 @@ the lens labels and control row change. A successful navigation sends
 `window/showDocument` and refreshes the control row immediately. The hint
 refresh is deferred until the client has applied the autoscroll, because an
 earlier refresh makes Zed invalidate hints against the pre-scroll visible rows
-and drop them (issue #42). Opening, changing, or closing the active source
+and drop them. Opening, changing, or closing the active source
 document also refreshes both overlays, except that hint refreshes are deferred
 while a `window/showDocument` for that document is pending. Non-tour documents,
 changes to inactive tours, and stop commands on an already inactive tour do not

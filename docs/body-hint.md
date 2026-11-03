@@ -90,7 +90,7 @@ chunk. The server also skips the active-source refresh that a `didOpen` or
 `didChange` triggers while a `window/showDocument` for that document is
 pending, because that refresh has the same stale-viewport problem. The deferral
 and its constants live in
-[`server.rs`](../crates/tour-lsp/src/server.rs); see issue #42.
+[`server.rs`](../crates/tour-lsp/src/server.rs).
 
 Stopping means setting the tour's running flag to false; the next hint request
 then returns `null` and Zed removes the old hint. The user's selection is left

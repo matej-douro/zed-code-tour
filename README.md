@@ -6,40 +6,7 @@ renders a virtual annotation block below the selection, with Previous / Next /
 Overview / Stop controls as a code lens row that hides the boundary controls.
 Source buffers are never edited.
 
-Status: early implementation. The extension and language server start and
-speak LSP, the tour file parser and model are implemented, the language server
-tracks one active tour, and the tour file has a start/stop/resume code lens with
-the `always`, `prompt`, and `never` auto-start modes. Resume returns to the open
-step instead of restarting at step 0. Character-range navigation
-selects exact UTF-16 ranges with `window/showDocument`. Agent-facing usage docs
-and a parse-tested sample tour are available. The active step is rendered as a
-body inlay hint in the source file, and the active source file has a step control
-code lens row. A tour thread link is stored and exposed, and the control row can
-focus it and explain the current routing gap. Full thread routing needs a Zed
-core follow-up. A headless end-to-end harness loads the built extension into a
-real Zed window under Xvfb, asserts the LSP transcript, drives real code lens and
-prompt interactions, and saves screenshots.
-The full design, constraints, and open questions live in
-[HANDOFF.md](HANDOFF.md).
-
 https://github.com/user-attachments/assets/47449c67-115a-487b-b714-f0f7e7e46246
-
-## Roadmap
-
-- [ ] Spike: verify code lens and inlay hint ordering and placement
-- [x] Scaffold Zed extension and tour LSP workspace
-- [x] Tour file parser and tour model
-- [x] LSP initialization, settings, and active tour state
-- [x] Start/stop code lens and start flow
-- [x] Body inlay hint renderer
-- [x] Step control code lens row
-- [x] Character-level range navigation with `window/showDocument`
-- [x] Agent integration, sample tour, and usage docs
-- [x] Thread link support and routing gap
-- [x] Test harness and manual verification matrix
-- [x] Headless Zed end-to-end harness
-- [x] Packaging, install docs, and CI/release
-- [x] Ready-to-install Zed agent skill
 
 ## Layout
 
@@ -86,8 +53,6 @@ https://github.com/user-attachments/assets/47449c67-115a-487b-b714-f0f7e7e46246
   naming.
 - `docs/release.md` and `docs/release-notes-template.md`: release checklist and
   notes template.
-- `docs/ci.md`: CI/release workflow status, the workflow-scope blocker, and
-  the one-step enable procedure tracked in #25.
 - `docs/testing.md`: automated suite entry points, the fake LSP harness,
   the headless Zed run, and the manual verification matrix.
 - `docs/e2e.md`: headless Zed end-to-end case table, dependencies, and
@@ -105,12 +70,10 @@ with an unrecognized extension gets no language in Zed, so the tour server
 cannot attach to it; add the language to `extension.toml` or switch the buffer
 language to `Plain Text` before starting the tour.
 
-The Tour language takes precedence over Markdown for `*.tour.md` files. In this
-scaffold it has no grammar, so tour files do not get Markdown preview, syntax
-highlighting, or Markdown-specific editing features. The language server still
-reads tour files as Markdown. A follow-up can attach the Markdown grammar and
-queries to the Tour language, or attach the server to Markdown and drop the Tour
-language.
+The Tour language takes precedence over Markdown for `*.tour.md` files. It has
+no grammar, so tour files do not get Markdown preview, syntax highlighting, or
+Markdown-specific editing features. The language server still reads tour files
+as Markdown.
 
 ## Settings
 
@@ -172,8 +135,7 @@ Paths are registered here.
 - A `zed:///agent/thread/<session_id>?name=...` link records the creating
   thread. A tour with this link gets a `Back to thread` control that focuses the
   link line and shows the URI. Zed does not route thread URIs from code lens or
-  preview yet; see [docs/thread-link.md](docs/thread-link.md) and the core
-  follow-up in #22.
+  preview; see [docs/thread-link.md](docs/thread-link.md).
 - The first paragraph of the step body is the annotation hint. Keep it short.
   A hidden `<!-- tour-step: {"hint": "Short text"} -->` comment overrides it.
 - Do not put placement or auto-start in the tour file. Those are user settings.
@@ -224,7 +186,7 @@ Copy the `skills/zed-code-tour` directory into one of those roots. See
 | --- | --- | --- |
 | `prompt` (default) | On `didOpen`, asks `Start tour` or `Not now`. | One extra click, but opening a tour to read or edit it does not start a tour unexpectedly. |
 | `always` | Starts at step 0 as soon as the tour file opens. | The shortest agent flow, but any open starts the tour, including reopening the file later. Use it when opening a tour always means starting one. |
-| `never` | Does not prompt or start. Waits for the start/stop/resume code lens. | Fully manual, but it needs code lens. With code lens off there is no visible start control in v1. |
+| `never` | Does not prompt or start. Waits for the start/stop/resume code lens. | Fully manual, but it needs code lens. With code lens off there is no visible start control. |
 
 The agent cannot override `auto_start` per tour. It is the user's setting in
 `lsp.tour.settings`.
@@ -243,15 +205,15 @@ lenses. Code lens is off by default. With code lens off:
 Enable code lens in Zed (`"code_lens": "on"`) when you want the manual start lens
 or step controls.
 
-### Out of scope for v1
+### Limitations
 
 - There is no MCP `start_tour` tool. Agents start a tour by writing a
   `.tour.md` file and emitting a `Start tour` ResourceLink.
 - There is no inlay-part control fallback. Step controls require code lens; with
   code lens off, the tour can start but has no step controls.
-- Thread routing from code lens or preview needs a Zed core patch. The v1
-  fallback focuses the link and shows the URI; it does not silently fail. See
-  [docs/thread-link.md](docs/thread-link.md) and #22.
+- Thread routing from code lens or preview is not available. The fallback
+  focuses the link and shows the URI; it does not silently fail. See
+  [docs/thread-link.md](docs/thread-link.md).
 - Tours do not edit source buffers. Selections and annotations are virtual.
 
 ### Copy-paste agent instruction
@@ -285,7 +247,7 @@ When the user asks for a code walkthrough, write a tour file and link it.
 4. After writing the file, emit an ACP ResourceLink named "Start tour" with the
    absolute file URI, for example:
    {"type":"resource_link","name":"Start tour","uri":"file:///workspace/acme/docs/auth.tour.md","mimeType":"text/markdown"}
-   Do not call an MCP start_tour tool; it does not exist in v1.
+   Do not call an MCP start_tour tool; it does not exist.
 5. If you cannot obtain the agent thread id, omit the thread link.
 ```
 
@@ -299,8 +261,6 @@ Requirements:
 - Network access to crates.io on the first build. The extension uses released
   `zed_extension_api` 0.7.0, the newest extension API supported by Zed Stable
   and Preview, so its wasm declares `since_v0_6_0` and loads on those channels.
-  The 0.8.0 schema hooks are deferred to a draft PR; they provide cosmetic
-  settings-editor validation and are not required for runtime settings.
 - Zed Stable or Preview for loading the extension as a dev extension.
 
 Build and test the workspace:
@@ -373,12 +333,8 @@ inlay hint for the active step.
 - [Install and local setup](docs/install.md) covers the dev extension, the
   local `tour-lsp` binary, required Zed settings, and verification.
 - [Packaging and distribution](docs/packaging.md) defines what ships, how the
-  extension finds `tour-lsp`, and the future registry asset names.
+  extension finds `tour-lsp`, and release artifact naming.
 - [Release checklist](docs/release.md) covers version bumps, tags, artifacts,
-  and notes. [CI workflow status](docs/ci.md) records the workflow-scope
-  blocker and the one-step enable procedure tracked in #25.
+  and notes.
 
-License: TBD. This repository is not licensed for redistribution. A public
-GitHub release and a Zed extension-registry submission are blocked until a
-license is chosen, `LICENSE` is added, and this line is updated. The release
-script enforces this gate.
+License: TBD. This repository is not licensed for redistribution.
