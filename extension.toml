@@ -6,21 +6,103 @@ schema_version = 1
 authors = ["Matej Douro"]
 repository = "https://github.com/matej-douro/zed-code-tour"
 
-# The Tour language is declared in languages/tour/config.toml, which is Zed's
-# extension layout for languages. Zed has no wildcard language registration, so
-# every source language where tour overlays may appear must be listed here.
-# The source languages below are the built-in Zed languages targeted by the
-# initial implementation. Extend this list as tour support grows.
+# Zed has no wildcard language registration. Every language where the tour
+# server should attach must be listed by its exact LanguageConfig.name.
+#
+# "Plain Text" covers .txt files and files with a text/txt modeline. Files with
+# an unrecognized extension have no language, so they do not attach; add the
+# language here or switch the buffer to Plain Text to tour them. Languages
+# provided by installed extensions work here too. The list below covers the
+# built-in languages, the Zed-repo language extensions, and the popular
+# language and text-format extensions.
 [language_servers.tour]
 name = "Tour"
 languages = [
     "Tour",
+
+    # Built-in languages and text formats.
+    "Plain Text",
+    "Shell Script",
     "C",
     "C++",
     "Go",
+    "Go Mod",
+    "Go Work",
     "JavaScript",
     "Python",
     "Rust",
     "TSX",
     "TypeScript",
+    "HTML",
+    "CSS",
+    "Markdown",
+    "JSON",
+    "JSONC",
+    "YAML",
+    "TOML",
+    "XML",
+    "SQL",
+    "Diff",
+    "Env",
+    "Git Commit",
+    "Regex",
+    "GLSL",
+    "Proto",
+
+    # Popular programming languages provided by extensions.
+    "CSharp",
+    "Objective-C",
+    "Java",
+    "Kotlin",
+    "Scala",
+    "Ruby",
+    "PHP",
+    "Lua",
+    "Swift",
+    "Dart",
+    "R",
+    "Julia",
+    "Perl",
+    "Haskell",
+    "OCaml",
+    "Clojure",
+    "Elixir",
+    "Erlang",
+    "Zig",
+    "Nim",
+    "Gleam",
+    "Assembly",
+    "PowerShell",
+    "Solidity",
+    "Vue.js",
+    "Svelte",
+    "Astro",
+    "SCSS",
+    "LESS",
+    "GraphQL",
+
+    # Build, config, and markup formats.
+    "Dockerfile",
+    "Docker Compose",
+    "Make",
+    "CMake",
+    "Terraform",
+    "HCL",
+    "Nix",
+    "Nginx",
+    "Gradle",
+    "Gradle KTS",
+    "Properties",
+    "AsciiDoc",
+    "Org",
+    "reST",
+    "LaTeX",
+    "Typst",
+    "CSV",
+    "ini",
+    "http",
+    "LOG",
+    "JSON5",
+    "JSON Lines",
+    "Jsonnet",
 ]

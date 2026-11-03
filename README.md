@@ -86,8 +86,15 @@ The full design, constraints, and open questions live in
 
 Zed has no wildcard language registration, so the `tour` server is registered
 explicitly for the Tour language and for each supported source language in
-`extension.toml`. The initial list covers the built-in languages targeted by the
-scaffold; add source languages there as tour overlay support grows.
+`extension.toml`. The list covers the built-in languages, the Zed-repo language
+extensions, and popular language and text-format extensions by their exact
+`LanguageConfig.name`. Languages provided by installed extensions work when
+listed.
+
+`Plain Text` covers `.txt` files and files with a `text`/`txt` modeline. A file
+with an unrecognized extension gets no language in Zed, so the tour server
+cannot attach to it; add the language to `extension.toml` or switch the buffer
+language to `Plain Text` before starting the tour.
 
 The Tour language takes precedence over Markdown for `*.tour.md` files. In this
 scaffold it has no grammar, so tour files do not get Markdown preview, syntax

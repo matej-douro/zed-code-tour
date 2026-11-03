@@ -116,14 +116,18 @@ Extension:
 
 - Defines a language server named, for example, `tour`.
 - Registers it for the Tour language and for the source languages where
-  overlays should appear. There is no wildcard language registration.
+  overlays should appear. There is no wildcard language registration. The
+  manifest lists built-in, Zed-repo, and popular extension languages by exact
+  `LanguageConfig.name`, plus `Plain Text` for `.txt` and modeline text. Files
+  with an unrecognized extension have no language; add the name or set the
+  buffer language to `Plain Text`.
 - The Tour language owns `*.tour.md` through `languages/tour/config.toml`. It
   takes precedence over Markdown, so `.tour.md` files do not get Markdown
   preview, highlighting, or other Markdown editor features until the Tour
   language is given the Markdown grammar and queries. Attaching the server to
   Markdown and dropping the Tour language is the alternative.
-- The server filters Tour and Markdown buffers by the `.tour.md` suffix and
-  ignores other buffers.
+- The server treats `.tour.md` buffers as tours and every other buffer as a
+  potential source.
 
 Language server:
 
