@@ -22,8 +22,7 @@ prompt interactions, and saves screenshots.
 The full design, constraints, and open questions live in
 [HANDOFF.md](HANDOFF.md).
 
-A 30 second [showcase video](docs/showcase.md) follows a contributor through a
-tour file in a real Zed window.
+https://github.com/user-attachments/assets/47449c67-115a-487b-b714-f0f7e7e46246
 
 ## Roadmap
 

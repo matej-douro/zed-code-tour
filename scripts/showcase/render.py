@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-MEDIA = REPO_ROOT / "docs" / "media"
 WIDTH, HEIGHT = 1600, 1000
 FPS = 30
 def font_file(query: str, preferred: str) -> str:
@@ -373,7 +372,7 @@ def raw_scene(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run", nargs="?", help="showcase run directory")
-    parser.add_argument("--out", help="output directory (default: docs/media)")
+    parser.add_argument("--out", help="output directory (default: <run>/out)")
     args = parser.parse_args()
 
     run_dir = Path(args.run).resolve() if args.run else latest_run()
@@ -384,7 +383,7 @@ def main() -> int:
     if not raw.exists() or "06-step-5" not in stills:
         raise SystemExit(f"run is missing raw.mkv or screenshots: {run_dir}")
 
-    out_dir = Path(args.out) if args.out else MEDIA
+    out_dir = Path(args.out) if args.out else run_dir / "out"
     work = run_dir / "render"
     if work.exists():
         shutil.rmtree(work)
