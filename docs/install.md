@@ -4,14 +4,12 @@ This page covers the local install for version 0.1.0: build the extension,
 install the `tour-lsp` binary, load the extension as a dev extension in Zed, and
 enable the Zed settings the tour overlays need.
 
-Release artifacts and the future extension-registry path are described in
-[packaging.md](packaging.md).
+Release artifacts are described in [packaging.md](packaging.md).
 
 ## Requirements
 
 - Zed Stable or Preview. The extension uses released `zed_extension_api` 0.7.0
-  (extension API `since_v0_6_0`), which those channels accept. The deferred
-  0.8.0 schema hooks are not required to load or run the extension.
+  (extension API `since_v0_6_0`), which those channels accept.
 - Rust 1.99.1. The repository pins it in `rust-toolchain.toml`.
 - The `wasm32-wasip2` target. `scripts/build-extension.sh` installs it through
   rustup when it is missing.

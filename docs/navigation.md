@@ -1,8 +1,7 @@
 # Character-range navigation
 
-This document describes the `window/showDocument` navigation added for issue
-#8. Hints and lenses that react to a step change are still implemented by
-issues #5, #6, and #7.
+This document describes the `window/showDocument` navigation, including the
+hint and lens refresh that follows a step change.
 
 ## Position conversion
 
@@ -51,8 +50,7 @@ The navigation commands are:
 | `tour.goto` | zero-based step index | Select that step |
 
 `tour.goto` uses a zero-based index to match active tour state and the code lens
-arguments planned for issue #7. An absent or out-of-range index is reported as
-an error.
+arguments. An absent or out-of-range index is reported as an error.
 
 After a successful transition the server sends, in order:
 
@@ -64,9 +62,10 @@ After a successful transition the server sends, in order:
 The hint refresh is deferred because `window/showDocument` only schedules the
 editor autoscroll. A refresh sent while the scroll is pending makes Zed
 invalidate hints against the pre-scroll visible rows and remove the body hint in
-files longer than 50 rows. See issue #42 and
+files longer than 50 rows. See
 [body-hint.md](body-hint.md#refresh-and-removal).
 
-Stopping the tour, the start lens, and auto-start/prompt are implemented by
-issue #5. Starting or restarting a tour selects step 0 through the same
-navigation path. Resuming selects the current step through that path instead.
+Stopping the tour, the start lens, and auto-start/prompt are described in
+[lsp-state.md](lsp-state.md). Starting or restarting a tour selects step 0
+through the same navigation path. Resuming selects the current step through
+that path instead.

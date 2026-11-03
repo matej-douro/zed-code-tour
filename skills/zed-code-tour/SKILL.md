@@ -137,13 +137,12 @@ code lens.
 
 - **No start lens or step controls.** `code_lens` is off. The tour can still
   start through `auto_start: always` or the prompt; with `auto_start: never`
-  there is no visible start control in v1.
+  there is no visible start control.
 - **No annotation.** `inlay_hints.enabled` is off. Navigation still works.
 - **`tour-lsp was not found in PATH`.** Install the language server and restart
   Zed so it sees the new `PATH`.
-- **The tour file looks like plain text.** The Tour language has no grammar yet.
-  That is expected; the raw Markdown stays readable and the server still parses
-  it.
+- **The tour file looks like plain text.** The Tour language has no grammar.
+  The raw Markdown stays readable and the server still parses it.
 - **`Back to thread` does not open the agent panel.** This Zed build does not
   route `zed:///agent/thread` links from code lens. The lens focuses the link
   line and shows the URI; open the thread from the Agent panel instead.
