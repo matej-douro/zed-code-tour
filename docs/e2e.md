@@ -72,6 +72,8 @@ Useful flags:
 | `last-line-newline` | The empty final line is used when the file ends with a newline. |
 | `relative-dotdot` | Targets with `..` resolve against the tour directory. |
 | `absolute-path` | Absolute targets resolve without the tour directory. |
+| `plain-text` | A `.txt` target attaches through the `Plain Text` language. |
+| `markdown-source` | A Markdown source file attaches to the tour server. |
 | `unicode` | Emoji selection uses UTF-16 columns while tour columns count scalars. |
 | `unicode-cafe` | Accented BMP text selects the exact scalar range. |
 | `unicode-last` | Last-line fallback after a multibyte character. |
@@ -175,11 +177,19 @@ Run the single case with `--case <name>` and inspect `lsp.jsonl` and
 ## Limitations
 
 M18's agent-output `ResourceLink` path still needs an agent and is not covered
-here; the `thread-link` case covers the `Back to thread` fallback. The
-screenshots are not compared against golden images, so painting regressions that
-do not change text or background pixels still need a visual check. The scroll
-case asserts that the hint moves with the viewport, not a subjective judgment
-about scroll smoothness.
+here; the `thread-link` case covers the `Back to thread` fallback.
+
+A file with an unrecognized extension has no language in Zed, so it cannot
+attach to the tour server. The `plain-text` case covers `.txt`; use the language
+selector to set an unknown file to `Plain Text`, or add the language to
+`extension.toml`. The list currently covers the built-in languages, the
+Zed-repo language extensions, and the popular language and text-format
+extensions.
+
+The screenshots are not compared against golden images, so painting regressions
+that do not change text or background pixels still need a visual check. The
+scroll case asserts that the hint moves with the viewport, not a subjective
+judgment about scroll smoothness.
 
 ## CI
 

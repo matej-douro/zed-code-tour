@@ -701,6 +701,50 @@ def cases() -> list[Case]:
             ],
         ),
         Case(
+            name="plain-text",
+            description="Plain Text files such as .txt attach to the tour server",
+            files={
+                "notes.txt": "alpha\nbeta gamma\ndelta\n",
+                "notes.tour.md": (
+                    "# Notes\n\n"
+                    "## 1. Second line\n"
+                    "[notes.txt:2:1-2:11](notes.txt#L2:1-L2:11)\n\n"
+                    "Plain text can be toured.\n"
+                ),
+            },
+            open_file="notes.tour.md",
+            settings=tour_settings("below", "always"),
+            active=True,
+            source="notes.txt",
+            show_document=(1, 0, 1, 10),
+            hint_position=(2, 0),
+            hint_label_contains="Plain text",
+            source_lenses=["1/1 | Overview", "Stop"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1"],
+        ),
+        Case(
+            name="markdown-source",
+            description="Markdown source files attach to the tour server",
+            files={
+                "guide.md": "# Guide\n\nThis paragraph explains the flow.\n",
+                "guide.tour.md": (
+                    "# Guide tour\n\n"
+                    "## 1. Paragraph\n"
+                    "[guide.md:3:1-3:33](guide.md#L3:1-L3:33)\n\n"
+                    "The source is a Markdown file.\n"
+                ),
+            },
+            open_file="guide.tour.md",
+            settings=tour_settings("below", "always"),
+            active=True,
+            source="guide.md",
+            show_document=(2, 0, 2, 32),
+            hint_position=(3, 0),
+            hint_label_contains="Markdown",
+            source_lenses=["1/1 | Overview", "Stop"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1"],
+        ),
+        Case(
             name="unicode",
             description="Character ranges count Unicode scalars and convert to UTF-16 columns",
             files={

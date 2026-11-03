@@ -121,6 +121,18 @@ and step controls are not rendered. With inlay hints off, navigation still works
 but the body annotation is absent. See [lsp-state.md](lsp-state.md) for the
 settings contract.
 
+## Languages and text files
+
+The tour server attaches only to the language names listed in `extension.toml`.
+The list covers built-in languages, the Zed-repo language extensions, and
+popular language and text-format extensions. `Plain Text` covers `.txt` files
+and files with a `text`/`txt` modeline.
+
+A file with an unrecognized extension gets no language in Zed, so the server
+cannot attach. Add the language name to `extension.toml` and rebuild the dev
+extension, or use the language selector to set the buffer to `Plain Text`
+before starting the tour.
+
 ## 6. Verify the install
 
 1. Open `examples/zed-code-tour.tour.md`.

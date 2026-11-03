@@ -100,7 +100,7 @@ artifacts.
 The headless cases also drive the UI: OCR plus `xdotool` click the real Next,
 Previous, Overview, Back to thread, and Stop lenses; answer the auto-start
 prompt; switch tabs; open a second tour; resize the window; and scroll the
-editor. That covers M01-M17 and M19-M21 at the protocol and interaction level.
+editor. That covers M01-M17 and M19-M22 at the protocol and interaction level.
 Only M18's agent-output `ResourceLink` still needs an agent.
 
 The run is separate from `./scripts/test.sh` because it needs Xvfb, a software
@@ -216,6 +216,7 @@ or edit the target link in `basic.tour.md`.
 | M19 | `last-line-newline` |
 | M20 | `last-line`, `unicode-last` |
 | M21 | `unicode`, `unicode-cafe`, `unicode-last` |
+| M22 | `plain-text`, `markdown-source` |
 
 ### Matrix
 
@@ -246,6 +247,7 @@ not change product behavior as part of this test pass.
 | M19 | Last line with trailing newline | Target the last content line of `last-with-newline.rs`, start below. | The empty final LSP line is used. Body hint and control row anchor there instead of using the end-of-line fallback. | `harness.rs::layout_last_line_with_*`, `hint.rs`, `controls.rs` | [ ] | [ ] |
 | M20 | Last line without trailing newline | Target the last line of `last-no-newline.rs`, start below. | End-of-line fallback is used: the hint label starts with a newline and the control row anchors at the selection start line. | `harness.rs::layout_last_line_without_*` | [ ] | [ ] |
 | M21 | Tabs, multibyte, CRLF | Target the tab, emoji, accented text, and final line in `unicode.rs`. | Tab counts as one column. Emoji selects exact UTF-16 code units. CRLF is not counted as part of a line. The final-line hint anchors after the last character. | `harness.rs::character_*`, `navigation.rs` | [ ] | [ ] |
+| M22 | Text formats and unlisted languages | Target a `.txt` file and a Markdown file. Then try a file with an unknown extension. | `.txt` attaches through `Plain Text`; Markdown attaches directly. A file with an unknown extension has no language; add the language to `extension.toml` or set the buffer language to `Plain Text`. | `e2e: plain-text, markdown-source` | [ ] | [ ] |
 
 ### Cleanup
 
