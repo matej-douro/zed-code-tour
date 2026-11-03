@@ -376,7 +376,10 @@ Main body.
     let (_, response) = client.code_lenses(SOURCE_URI);
     assert!(result(&response).as_array().expect("lens array").is_empty());
     let (_, response) = client.code_lenses("file:///tours/second.tour.md");
-    assert_eq!(lens_titles(&response), vec!["▶ Start tour (2 steps)"]);
+    assert_eq!(
+        lens_titles(&response),
+        vec!["▶ Start tour (2 steps)", "▶ Resume | 2/2"]
+    );
 
     client.finish();
 }

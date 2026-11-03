@@ -18,7 +18,7 @@ The model keeps the title, the optional thread link, and the ordered steps. Each
 step stores its target path, range, body, and optional hint.
 
 ## 3. Code lens rows
-[../crates/tour-lsp/src/server.rs:468:5-519:6](../crates/tour-lsp/src/server.rs#L468:5-L519:6)
+[../crates/tour-lsp/src/server.rs:470:5-536:6](../crates/tour-lsp/src/server.rs#L470:5-L536:6)
 
 The tour file gets one lens at the top, while the active source file gets the
 step control row. Both use the stock code lens style.

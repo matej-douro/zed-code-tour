@@ -108,7 +108,7 @@ by default. Open Settings with `zed: open settings` and use:
 }
 ```
 
-- `code_lens: "on"` is required for the tour-file start/stop lens and the
+- `code_lens: "on"` is required for the tour-file start/stop/resume lens and the
   source-file Previous / Next / Overview / Stop row.
 - `inlay_hints.enabled: true` is required for the body annotation.
 - `inlay_hints.show_background` is optional. When enabled, the padded hint gets

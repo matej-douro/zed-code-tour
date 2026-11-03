@@ -202,7 +202,7 @@ fn auto_start_always_exposes_the_active_start_lens() {
         .iter()
         .map(|lens| lens["command"]["title"].as_str().expect("lens title"))
         .collect();
-    assert_eq!(titles, vec!["■ Stop tour", "⟳ Restart | 1/2"]);
+    assert_eq!(titles, vec!["■ Stop tour", "⟳ Restart | 1/2", "▶ Resume"]);
 
     client.send(json!({
         "jsonrpc": "2.0",
@@ -369,7 +369,7 @@ fn auto_start_prompt_starts_after_confirmation() {
         .iter()
         .map(|lens| lens["command"]["title"].as_str().expect("lens title"))
         .collect();
-    assert_eq!(titles, vec!["■ Stop tour", "⟳ Restart | 1/2"]);
+    assert_eq!(titles, vec!["■ Stop tour", "⟳ Restart | 1/2", "▶ Resume"]);
 
     client.send(json!({
         "jsonrpc": "2.0",

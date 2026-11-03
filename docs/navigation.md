@@ -45,6 +45,7 @@ The navigation commands are:
 | Command | Argument | Behavior |
 | --- | --- | --- |
 | `tour.start` | none | Mark the tour running at step 0 and show it |
+| `tour.resume` | none | Show the current step and mark the tour running, without resetting to step 0 |
 | `tour.next` | none | Move to the next step, or no-op at the last step |
 | `tour.previous` | none | Move to the previous step, or no-op at the first step |
 | `tour.goto` | zero-based step index | Select that step |
@@ -62,4 +63,4 @@ After a successful transition the server sends, in order:
 
 Stopping the tour, the start lens, and auto-start/prompt are implemented by
 issue #5. Starting or restarting a tour selects step 0 through the same
-navigation path.
+navigation path. Resuming selects the current step through that path instead.

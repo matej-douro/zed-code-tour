@@ -173,7 +173,7 @@ def cases() -> list[Case]:
             hint_label_contains="computes a total.",
             hint_background=True,
             source_lenses=["1/2 | Next ▶", "Overview", "Back to thread", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2", "▶ Resume"],
             expect_text=["Next"],
         ),
         Case(
@@ -187,7 +187,7 @@ def cases() -> list[Case]:
             hint_position=(1, 0),
             hint_label_prefix=" The program starts here",
             source_lenses=["1/2 | Next ▶", "Overview", "Back to thread", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2", "▶ Resume"],
         ),
         Case(
             name="last-line",
@@ -209,7 +209,7 @@ def cases() -> list[Case]:
             hint_position=(3, 9),
             hint_label_prefix="\n The tour ends",
             source_lenses=["1/1 | Overview", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1", "▶ Resume"],
         ),
         Case(
             name="relative-dotdot",
@@ -299,7 +299,7 @@ def cases() -> list[Case]:
             hint_position=(4, 0),
             hint_label_contains="newline",
             source_lenses=["1/1 | Overview", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1", "▶ Resume"],
         ),
         Case(
             name="absolute-path",
@@ -403,7 +403,7 @@ def cases() -> list[Case]:
             hint_label_contains="computes a total.",
             hint_background=False,
             source_lenses=["1/2 | Next ▶", "Overview", "Back to thread", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2", "▶ Resume"],
         ),
         Case(
             name="navigate",
@@ -415,7 +415,7 @@ def cases() -> list[Case]:
             final_active=False,
             show_document=(1, 4, 1, 20),
             source_lenses=[],
-            tour_lenses=["▶ Start tour (2 steps)"],
+            tour_lenses=["▶ Start tour (2 steps)", "▶ Resume | 2/2"],
             expect_text=["Next", "1/2"],
             actions=[
                 Action(
@@ -473,7 +473,7 @@ def cases() -> list[Case]:
             hint_position=(2, 0),
             hint_label_contains="computes a total.",
             source_lenses=["1/2 | Next ▶", "Overview", "Back to thread", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2", "▶ Resume"],
             wait_marker='"method":"window/showMessageRequest"',
             actions=[
                 Action(
@@ -544,7 +544,7 @@ def cases() -> list[Case]:
             inlay_requests=False,
             show_document=(1, 4, 1, 20),
             source_lenses=["◀ Prev", "2/2 | Overview", "Back to thread", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 2/2"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 2/2", "▶ Resume"],
             actions=[
                 Action(
                     name="next",
@@ -567,7 +567,7 @@ def cases() -> list[Case]:
             hint_position=(2, 0),
             hint_label_contains="computes a total.",
             source_lenses=["1/2 | Next ▶", "Overview", "Back to thread", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/2", "▶ Resume"],
             actions=[
                 Action(
                     name="back",
@@ -609,7 +609,7 @@ def cases() -> list[Case]:
             hint_position=(2, 0),
             hint_label_contains="second tour wins",
             source_lenses=["1/1 | Overview", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1", "▶ Resume"],
             cleared_sources=["main.rs"],
             actions=[
                 Action(
@@ -720,7 +720,7 @@ def cases() -> list[Case]:
             hint_position=(2, 0),
             hint_label_contains="Plain text",
             source_lenses=["1/1 | Overview", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1", "▶ Resume"],
         ),
         Case(
             name="markdown-source",
@@ -742,7 +742,7 @@ def cases() -> list[Case]:
             hint_position=(3, 0),
             hint_label_contains="Markdown",
             source_lenses=["1/1 | Overview", "Stop"],
-            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 1/1", "▶ Resume"],
         ),
         Case(
             name="unicode",

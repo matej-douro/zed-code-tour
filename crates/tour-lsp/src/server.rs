@@ -27,6 +27,7 @@ pub const SERVER_NAME: &str = "tour-lsp";
 
 pub const TOUR_COMMANDS: &[&str] = &[
     "tour.start",
+    "tour.resume",
     "tour.stop",
     "tour.next",
     "tour.previous",
@@ -44,6 +45,7 @@ const START_TOUR_ACTION: &str = "Start tour";
 const NOT_NOW_ACTION: &str = "Not now";
 
 const INACTIVE_START_COMMAND: &str = "tour.start";
+const RESUME_COMMAND: &str = "tour.resume";
 const STOP_COMMAND: &str = "tour.stop";
 
 /// LSP request handlers and the single active tour state.
@@ -495,13 +497,13 @@ impl TourServer {
 
     fn tour_code_lenses(&self, active: &crate::state::ActiveTour) -> Vec<CodeLens> {
         let range = Range::new(Position::new(0, 0), Position::new(0, 0));
+        let step_count = active.step_count();
+        let current_step = if step_count == 0 {
+            0
+        } else {
+            active.current_step + 1
+        };
         if active.running {
-            let step_count = active.step_count();
-            let current_step = if step_count == 0 {
-                0
-            } else {
-                active.current_step + 1
-            };
             vec![
                 code_lens(range, "■ Stop tour", STOP_COMMAND),
                 code_lens(
@@ -509,11 +511,25 @@ impl TourServer {
                     format!("⟳ Restart | {current_step}/{step_count}"),
                     INACTIVE_START_COMMAND,
                 ),
+                code_lens(range, "▶ Resume", RESUME_COMMAND),
+            ]
+        } else if current_step > 1 {
+            vec![
+                code_lens(
+                    range,
+                    format!("▶ Start tour ({step_count} steps)"),
+                    INACTIVE_START_COMMAND,
+                ),
+                code_lens(
+                    range,
+                    format!("▶ Resume | {current_step}/{step_count}"),
+                    RESUME_COMMAND,
+                ),
             ]
         } else {
             vec![code_lens(
                 range,
-                format!("▶ Start tour ({} steps)", active.step_count()),
+                format!("▶ Start tour ({step_count} steps)"),
                 INACTIVE_START_COMMAND,
             )]
         }
@@ -548,6 +564,9 @@ impl TourServer {
         match params.command.as_str() {
             "tour.start" => {
                 self.start_active_tour(sender)?;
+            }
+            "tour.resume" => {
+                self.resume_active_tour(sender)?;
             }
             "tour.stop" => {
                 if self.stop_active_tour() {
@@ -721,6 +740,23 @@ impl TourServer {
 
         self.select_step(0, Some(true), sender)?;
         Ok(true)
+    }
+
+    /// Continue the active tour at its current step. Unlike `tour.start`, this
+    /// does not reset to step 0, so it can return from an overview or resume a
+    /// stopped tour where it left off.
+    fn resume_active_tour(
+        &mut self,
+        sender: &Sender<Message>,
+    ) -> std::result::Result<(), CommandError> {
+        let step = {
+            let active = self.state.active().ok_or(CommandError::NoActiveTour)?;
+            if active.step_count() == 0 {
+                return Err(CommandError::NoSteps);
+            }
+            active.current_step
+        };
+        self.select_step(step, Some(true), sender)
     }
 
     fn stop_active_tour(&mut self) -> bool {
@@ -1933,6 +1969,15 @@ Entry body.
                 .all(|(_, method, _)| method != "workspace/inlayHint/refresh"),
             "overview only changes focus and should not refresh overlays"
         );
+
+        let response = server.handle_request(&execute_command_request(3, "tour.resume"), &sender);
+        assert_command_ok(&response);
+        let active = server.state().active().expect("tour is active");
+        assert!(active.running);
+        assert_eq!(active.current_step, 0);
+        let requests = drain_server_requests(&receiver);
+        assert_show_document(&requests, SOURCE_URI, (1, 2), (1, 8));
+        assert_refreshes(&requests);
     }
 
     #[test]
@@ -1964,15 +2009,15 @@ Entry body.
         let active_lens = server.handle_request(&code_lens_request(2, tour_uri), &sender);
         assert_eq!(
             code_lens_titles(&active_lens),
-            vec!["■ Stop tour", "⟳ Restart | 1/2"]
+            vec!["■ Stop tour", "⟳ Restart | 1/2", "▶ Resume"]
         );
         assert_eq!(
             code_lens_titles(&active_lens).join(" | "),
-            "■ Stop tour | ⟳ Restart | 1/2"
+            "■ Stop tour | ⟳ Restart | 1/2 | ▶ Resume"
         );
         assert_eq!(
             code_lens_commands(&active_lens),
-            vec!["tour.stop", "tour.start"]
+            vec!["tour.stop", "tour.start", "tour.resume"]
         );
 
         server
@@ -1983,7 +2028,7 @@ Entry body.
         let second_step_lens = server.handle_request(&code_lens_request(3, tour_uri), &sender);
         assert_eq!(
             code_lens_titles(&second_step_lens),
-            vec!["■ Stop tour", "⟳ Restart | 2/2"]
+            vec!["■ Stop tour", "⟳ Restart | 2/2", "▶ Resume"]
         );
 
         let restart = server.handle_request(&execute_command_request(4, "tour.start"), &sender);
@@ -2000,6 +2045,64 @@ Entry body.
         assert_eq!(
             code_lens_titles(&server.handle_request(&code_lens_request(6, tour_uri), &sender)),
             vec!["▶ Start tour (2 steps)"]
+        );
+    }
+
+    #[test]
+    fn resume_returns_to_the_open_step_and_continues_a_stopped_tour() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+        let tour_uri = "file:///tours/example.tour.md";
+
+        open_navigation_sources(&mut server, &sender);
+        server
+            .handle_notification(&did_open_notification(tour_uri, TWO_STEP_TOUR), &sender)
+            .expect("notification should be handled");
+        let _ = receiver.try_iter().count();
+
+        let start = server.handle_request(&execute_command_request(1, "tour.start"), &sender);
+        assert_command_ok(&start);
+        let next = server.handle_request(&execute_command_request(2, "tour.next"), &sender);
+        assert_command_ok(&next);
+        let _ = receiver.try_iter().count();
+
+        let stop = server.handle_request(&execute_command_request(3, "tour.stop"), &sender);
+        assert_command_ok(&stop);
+        let _ = receiver.try_iter().count();
+        assert!(!server.state().active().expect("tour is active").running);
+        assert_eq!(
+            server
+                .state()
+                .active()
+                .expect("tour is active")
+                .current_step,
+            1
+        );
+
+        let stopped_lens = server.handle_request(&code_lens_request(4, tour_uri), &sender);
+        assert_eq!(
+            code_lens_titles(&stopped_lens),
+            vec!["▶ Start tour (2 steps)", "▶ Resume | 2/2"]
+        );
+        assert_eq!(
+            code_lens_commands(&stopped_lens),
+            vec!["tour.start", "tour.resume"]
+        );
+
+        let resume = server.handle_request(&execute_command_request(5, "tour.resume"), &sender);
+        assert_command_ok(&resume);
+        let active = server.state().active().expect("tour is active");
+        assert!(active.running);
+        assert_eq!(active.current_step, 1);
+
+        let requests = drain_server_requests(&receiver);
+        assert_show_document(&requests, ROUTER_URI, (3, 0), (3, 3));
+        assert_refreshes(&requests);
+
+        let running_lens = server.handle_request(&code_lens_request(6, tour_uri), &sender);
+        assert_eq!(
+            code_lens_titles(&running_lens),
+            vec!["■ Stop tour", "⟳ Restart | 2/2", "▶ Resume"]
         );
     }
 

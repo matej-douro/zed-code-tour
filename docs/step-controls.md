@@ -4,8 +4,8 @@ While a tour is running, the language server returns one single-line control
 row for the active step's source file. It uses the stock code lens style. There
 is no per-lens styling, no inlay-part fallback, and no source-buffer edit.
 
-The row is implemented by issue #7. The tour-file start/stop lens is described
-in [lsp-state.md](lsp-state.md), and the body hint in
+The row is implemented by issue #7. The tour-file start/stop/resume lens is
+described in [lsp-state.md](lsp-state.md), and the body hint in
 [body-hint.md](body-hint.md).
 
 ## Row content
@@ -87,9 +87,9 @@ while the tour is running.
 For v1, `tour.overview` focuses the active tour document at line 0, character 0
 with `window/showDocument` and `takeFocus: true`. It does not change the current
 step or the running flag, and it does not refresh overlays because nothing in
-the tour state changed. The active step stays selected, so Previous, Next, or
-`tour.goto` returns focus to its source file. Running `tour.start` again
-restarts the tour at step 0.
+the tour state changed. The active step stays selected, so `tour.resume`, the
+tour-file `▶ Resume` lens, Previous, Next, or `tour.goto` returns focus to its
+source file. Running `tour.start` again restarts the tour at step 0.
 
 Opening the tour file instead of a generated index keeps v1 simple and needs no
 custom panel or webview. A richer overview is out of scope.

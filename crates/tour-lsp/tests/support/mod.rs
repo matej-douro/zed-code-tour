@@ -100,6 +100,7 @@ impl LspClient {
             result["capabilities"]["executeCommandProvider"]["commands"],
             json!([
                 "tour.start",
+                "tour.resume",
                 "tour.stop",
                 "tour.next",
                 "tour.previous",

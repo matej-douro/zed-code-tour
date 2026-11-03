@@ -34,7 +34,7 @@ fn sample_tour_parses_and_targets_real_files() {
     let expected_starts = [
         (68, "fn parse_tour"),
         (5, "pub struct Tour"),
-        (468, "fn code_lenses_for"),
+        (470, "fn code_lenses_for"),
     ];
 
     for (step, (start_line, token)) in tour.steps.iter().zip(expected_starts) {
