@@ -64,8 +64,8 @@ The full design, constraints, and open questions live in
   [docs/thread-link.md](docs/thread-link.md).
 - `examples/zed-code-tour.tour.md`: sample tour over this repository. A test
   keeps it parseable and verifies that its relative targets exist.
-- `skills/SKILL.md`: ready-to-install Zed agent skill for writing and starting
-  tours. See [skills/README.md](skills/README.md).
+- `skills/zed-code-tour/SKILL.md`: ready-to-install Zed agent skill for
+  writing and starting tours. See [skills/README.md](skills/README.md).
 - `skills/README.md`: skill install paths and why Zed extensions cannot
   register skills automatically.
 - `scripts/build-extension.sh`: builds the WASM extension to `extension.wasm`.
@@ -199,12 +199,12 @@ label.
 
 ### Agent skill
 
-`skills/SKILL.md` is a ready-to-install Zed skill that teaches an agent the tour
-format, range rules, start flow, and verification checklist. Zed loads skills
-from `~/.agents/skills/<name>/SKILL.md` or `<project>/.agents/skills/<name>/SKILL.md`;
-extensions cannot register skills. Copy the file into a `zed-code-tour/`
-directory under one of those roots. See [skills/README.md](skills/README.md) for
-the commands and the one-level discovery rule.
+`skills/zed-code-tour/SKILL.md` is a ready-to-install Zed skill that teaches an
+agent the tour format, range rules, start flow, and verification checklist. Zed
+loads skills from `~/.agents/skills/<name>/SKILL.md` or
+`<project>/.agents/skills/<name>/SKILL.md`; extensions cannot register skills.
+Copy the `skills/zed-code-tour` directory into one of those roots. See
+[skills/README.md](skills/README.md) for the commands.
 
 ### `auto_start` modes
 

@@ -9,7 +9,7 @@ fail() {
     exit 1
 }
 
-skill="skills/SKILL.md"
+skill="skills/zed-code-tour/SKILL.md"
 [[ -f "$skill" ]] || fail "$skill is missing"
 [[ -f skills/README.md ]] || fail "skills/README.md is missing"
 
@@ -25,6 +25,8 @@ name="$(sed -n 's/^name: //p' "$skill" | head -n 1)"
     fail "skill name must be at most 64 characters"
 [[ "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] ||
     fail "skill name must contain only lowercase letters, numbers, and hyphens"
+[[ "$(basename "$(dirname "$skill")")" == "$name" ]] ||
+    fail "skill directory must match the frontmatter name ($name)"
 
 description="$(sed -n 's/^description: //p' "$skill" | head -n 1)"
 [[ -n "$description" ]] || fail "skill description is empty"

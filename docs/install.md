@@ -139,17 +139,17 @@ For the full automated and manual test procedure, see [testing.md](testing.md).
 
 ## Optional: install the Zed agent skill
 
-`skills/SKILL.md` teaches a Zed agent how to write and start tours. Zed loads
-skills from `.agents/skills/<name>/SKILL.md`, and extensions cannot register
-them, so install it as a file:
+`skills/zed-code-tour/SKILL.md` teaches a Zed agent how to write and start tours.
+Zed loads skills from `.agents/skills/<name>/SKILL.md`, and extensions cannot
+register them, so install it as a directory copy:
 
 ```sh
-mkdir -p ~/.agents/skills/zed-code-tour
-cp skills/SKILL.md ~/.agents/skills/zed-code-tour/SKILL.md
+mkdir -p ~/.agents/skills
+cp -r skills/zed-code-tour ~/.agents/skills/
 ```
 
-Use `<project>/.agents/skills/zed-code-tour/SKILL.md` for a project-local copy.
-Start a new agent thread after copying. See [skills/README.md](../skills/README.md).
+For a project-local copy, use `<project>/.agents/skills/`. Start a new agent
+thread after copying. See [skills/README.md](../skills/README.md).
 
 ## Uninstall
 

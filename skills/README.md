@@ -1,7 +1,7 @@
 # Zed agent skill
 
-`SKILL.md` contains a ready-to-install skill that teaches a Zed agent to write
-and start code tours with this extension.
+`zed-code-tour/SKILL.md` contains a ready-to-install skill that teaches a Zed
+agent to write and start code tours with this extension.
 
 ## Why it is not installed automatically
 
@@ -20,22 +20,21 @@ prompt fragment. It is not part of the model's skill catalog and does not get th
 description-based activation or the `skill` tool behavior, so a copyable skill
 file is the right shape here.
 
-Zed discovers skills one level deep: the immediate child directory of the
-skills root must contain `SKILL.md`. The repository keeps the skill at
-`skills/SKILL.md` for download, so copy it into a `zed-code-tour/` directory.
+The repository uses Zed's one-directory-per-skill layout, so copy the
+`zed-code-tour` directory into a skills root.
 
 ## Install globally
 
 ```sh
-mkdir -p ~/.agents/skills/zed-code-tour
-cp skills/SKILL.md ~/.agents/skills/zed-code-tour/SKILL.md
+mkdir -p ~/.agents/skills
+cp -r skills/zed-code-tour ~/.agents/skills/
 ```
 
 ## Install in one project
 
 ```sh
-mkdir -p <project>/.agents/skills/zed-code-tour
-cp skills/SKILL.md <project>/.agents/skills/zed-code-tour/SKILL.md
+mkdir -p <project>/.agents/skills
+cp -r skills/zed-code-tour <project>/.agents/skills/
 ```
 
 The project-local copy is available only when the project is trusted. Start a
@@ -47,8 +46,9 @@ Open the Zed agent panel and type `/zed-code-tour`, or pick the skill from the
 slash-command menu. The model can also invoke it on its own when the request
 matches the skill description.
 
-The directory name can be anything; Zed uses the `name` field in the
-frontmatter (`zed-code-tour`). Keep the directory name the same for clarity.
+Zed reads the skill name from the frontmatter. Keep the directory name equal to
+the frontmatter name (`zed-code-tour`) so the layout matches the expected skill
+format.
 
 ## Notes
 
