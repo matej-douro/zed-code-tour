@@ -1,6 +1,6 @@
 # Showcase recording
 
-The clip in [docs/media](../../docs/media) is a real Zed window, not a mockup.
+The showcase clip is a real Zed window, not a mockup.
 `record.py` reuses the headless harness in [scripts/e2e_zed.py](../e2e_zed.py)
 to install the extension into an isolated profile, opens
 [showcase.tour.md](../../showcase.tour.md), clicks the real Start, Next, and
@@ -26,8 +26,15 @@ python3 scripts/showcase/render.py
 ```
 
 The recording lands in `target/showcase-runs/zed-code-tour/<timestamp>/`.
-`render.py` uses the newest run by default and writes
-`docs/media/zed-code-tour-showcase.mp4` and its poster.
+`render.py` uses the newest run by default and writes the MP4 and poster to
+`out/` in that run directory.
 
 Use `SHOWCASE_ZED=/path/to/zed` to reuse a local binary, or
 `SHOWCASE_OUT=/path/to/runs` to write elsewhere.
+
+## Publish
+
+The clip is not committed. Open `README.md` on GitHub, click Edit, drag the
+rendered MP4 into the editor, and leave the generated
+`https://github.com/user-attachments/assets/<id>` URL alone on its own line.
+GitHub renders that URL as the inline player.
