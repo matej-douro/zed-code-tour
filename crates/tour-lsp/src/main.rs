@@ -1,6 +1,7 @@
-use std::process::ExitCode;
+use std::{process::ExitCode, time::Instant};
 
 use anyhow::Result;
+use crossbeam_channel::RecvTimeoutError;
 use lsp_server::{Connection, Message};
 use lsp_types::InitializeParams;
 use tour_lsp::{server::TourServer, settings::TourSettings};
@@ -29,9 +30,21 @@ fn run() -> Result<ExitCode> {
 
     let mut server = TourServer::new(settings);
 
-    for message in &connection.receiver {
+    loop {
+        let message = match server.hint_refresh_timeout() {
+            Some(timeout) => match connection.receiver.recv_timeout(timeout) {
+                Ok(message) => Some(message),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Disconnected) => break,
+            },
+            None => match connection.receiver.recv() {
+                Ok(message) => Some(message),
+                Err(_) => break,
+            },
+        };
+
         match message {
-            Message::Request(request) => {
+            Some(Message::Request(request)) => {
                 if connection.handle_shutdown(&request)? {
                     break;
                 }
@@ -39,7 +52,7 @@ fn run() -> Result<ExitCode> {
                 let response = server.handle_request(&request, &connection.sender);
                 connection.sender.send(Message::Response(response))?;
             }
-            Message::Notification(notification) => {
+            Some(Message::Notification(notification)) => {
                 if notification.method == "exit" {
                     eprintln!("tour-lsp: received exit before shutdown");
                     return Ok(ExitCode::FAILURE);
@@ -49,11 +62,16 @@ fn run() -> Result<ExitCode> {
                     eprintln!("tour-lsp: failed to handle notification: {error:#}");
                 }
             }
-            Message::Response(response) => {
+            Some(Message::Response(response)) => {
                 if let Err(error) = server.handle_response(&response, &connection.sender) {
                     eprintln!("tour-lsp: failed to handle response: {error:#}");
                 }
             }
+            None => {}
+        }
+
+        if let Err(error) = server.flush_due_hint_refresh(Instant::now(), &connection.sender) {
+            eprintln!("tour-lsp: failed to send deferred hint refresh: {error:#}");
         }
     }
 

@@ -187,7 +187,11 @@ After a tour is opened, updated, or cleared, the server sends
 `workspace/inlayHint/refresh` and `workspace/codeLens/refresh`. Starting,
 stopping, restarting, and confirming a start prompt also refresh both overlays so
 the lens labels and control row change. A successful navigation sends
-`window/showDocument` followed by both refreshes. Opening, changing, or closing
-the active source document also refreshes both overlays. Non-tour documents,
+`window/showDocument` and refreshes the control row immediately. The hint
+refresh is deferred until the client has applied the autoscroll, because an
+earlier refresh makes Zed invalidate hints against the pre-scroll visible rows
+and drop them (issue #42). Opening, changing, or closing the active source
+document also refreshes both overlays, except that hint refreshes are deferred
+while a `window/showDocument` for that document is pending. Non-tour documents,
 changes to inactive tours, and stop commands on an already inactive tour do not
 send refreshes.

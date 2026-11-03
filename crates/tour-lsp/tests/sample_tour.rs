@@ -34,7 +34,7 @@ fn sample_tour_parses_and_targets_real_files() {
     let expected_starts = [
         (68, "fn parse_tour"),
         (5, "pub struct Tour"),
-        (470, "fn code_lenses_for"),
+        (511, "fn code_lenses_for"),
     ];
 
     for (step, (start_line, token)) in tour.steps.iter().zip(expected_starts) {
@@ -140,11 +140,12 @@ fn sample_tour_works_end_to_end_with_normalized_source_uris() {
         assert_eq!(show_document["uri"], json!(uri.as_str()));
         assert_eq!(
             request_methods(&messages),
-            vec![
-                "window/showDocument",
-                "workspace/inlayHint/refresh",
-                "workspace/codeLens/refresh",
-            ]
+            vec!["window/showDocument", "workspace/codeLens/refresh"]
+        );
+        assert_eq!(
+            client.receive()["method"],
+            json!("workspace/inlayHint/refresh"),
+            "the step change should refresh hints after the client scrolls"
         );
 
         let (messages, response) = client.code_lenses(uri.as_str());

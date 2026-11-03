@@ -104,6 +104,9 @@ return an empty array, so Zed removes the row. The tour-file start lens remains.
 
 Opening, changing, or closing the active source document also refreshes both
 hints and lenses, so the row appears, moves, or disappears with the document.
+Hints are the exception while a step change is still being shown: the control
+row is refreshed immediately, but the hint refresh waits until Zed has scrolled
+to the new selection (issue #42).
 
 ## Code lens off
 

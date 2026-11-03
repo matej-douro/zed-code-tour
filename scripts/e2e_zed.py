@@ -158,6 +158,51 @@ def basic_files() -> dict[str, str]:
     return {"main.rs": BASIC_MAIN, "basic.tour.md": BASIC_TOUR}
 
 
+def long_main_source() -> str:
+    lines = ["fn main() {"]
+    for i in range(2, 60):
+        lines.append(f"    let v{i} = {i};")
+    lines.append("}")
+    lines.append("fn middle() {")
+    for i in range(62, 120):
+        lines.append(f"    // middle {i}")
+    lines.append("}")
+    lines.append("fn tail() {")
+    for i in range(122, 130):
+        lines.append(f"    // tail {i}")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+# Zed caches inlay hints in 50-row chunks. Steps in different chunks expose the
+# invalidating-refresh race described in issue #42: the hint is returned by the
+# server, shown briefly, and then removed by a refresh that snapshotted the
+# pre-scroll viewport.
+LONG_MAIN = long_main_source()
+
+LONG_TOUR = """# Long tour
+
+## 1. Top
+[main.rs:1:1-1:11](main.rs#L1:1-L1:11)
+
+The alpha annotation for the entry point.
+
+## 2. Middle
+[main.rs:61:1-61:13](main.rs#L61:1-L61:13)
+
+The beacon annotation for the middle function.
+
+## 3. Tail
+[main.rs:121:1-121:11](main.rs#L121:1-L121:11)
+
+The cobalt annotation for the tail function.
+"""
+
+
+def long_files() -> dict[str, str]:
+    return {"main.rs": LONG_MAIN, "long.tour.md": LONG_TOUR}
+
+
 def cases() -> list[Case]:
     return [
         Case(
@@ -457,6 +502,39 @@ def cases() -> list[Case]:
                     click_text="Stop",
                     region=(100, 100, 1000, 400),
                     expect_absent_text=["behavior"],
+                ),
+            ],
+        ),
+        Case(
+            name="long-file",
+            description="Hints stay visible across steps in different 50-row chunks",
+            files=long_files(),
+            open_file="long.tour.md",
+            settings=tour_settings("below", "always"),
+            active=True,
+            final_active=True,
+            show_document=(0, 0, 0, 10),
+            hint_position=(121, 0),
+            hint_label_contains="cobalt",
+            source_lenses=["◀ Prev", "3/3 | Overview", "Stop"],
+            tour_lenses=["■ Stop tour", "⟳ Restart | 3/3", "▶ Resume"],
+            expect_text=["alpha"],
+            actions=[
+                Action(
+                    name="next-middle",
+                    click_text="Next",
+                    region=(100, 100, 1300, 800),
+                    expect_document=("main.rs", (60, 0, 60, 12)),
+                    expect_text=["beacon"],
+                    expect_absent_text=["alpha"],
+                ),
+                Action(
+                    name="next-tail",
+                    click_text="Next",
+                    region=(100, 100, 1300, 800),
+                    expect_document=("main.rs", (120, 0, 120, 10)),
+                    expect_text=["cobalt"],
+                    expect_absent_text=["beacon"],
                 ),
             ],
         ),
