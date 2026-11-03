@@ -58,8 +58,14 @@ After a successful transition the server sends, in order:
 
 1. `window/showDocument` with the target URI, exact `Range`, and
    `takeFocus: true`.
-2. `workspace/inlayHint/refresh`.
-3. `workspace/codeLens/refresh`.
+2. `workspace/codeLens/refresh`.
+3. `workspace/inlayHint/refresh`, after a short delay.
+
+The hint refresh is deferred because `window/showDocument` only schedules the
+editor autoscroll. A refresh sent while the scroll is pending makes Zed
+invalidate hints against the pre-scroll visible rows and remove the body hint in
+files longer than 50 rows. See issue #42 and
+[body-hint.md](body-hint.md#refresh-and-removal).
 
 Stopping the tour, the start lens, and auto-start/prompt are implemented by
 issue #5. Starting or restarting a tour selects step 0 through the same

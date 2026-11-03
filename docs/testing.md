@@ -62,7 +62,8 @@ requests, and fails with a timeout instead of hanging when a payload is missing.
 - `workspace/executeCommand` transitions and no-op boundaries (`tour.next` at
   the last step, `tour.previous` at the first step, and out-of-range `goto`),
 - `window/showDocument` URIs, selections, `takeFocus`, and `external`,
-- `workspace/inlayHint/refresh` and `workspace/codeLens/refresh` requests,
+- `workspace/inlayHint/refresh` and `workspace/codeLens/refresh` requests, and
+  the deferral of the step-change hint refresh until after the client scrolls,
 - server behavior when overlay requests are omitted (the Zed settings gates
   themselves are manual; see M06-M09),
 - multiple tours and multiple source files, replacement, and stop cleanup,
@@ -249,6 +250,7 @@ not change product behavior as part of this test pass.
 | M20 | Last line without trailing newline | Target the last line of `last-no-newline.rs`, start below. | End-of-line fallback is used: the hint label starts with a newline and the control row anchors at the selection start line. | `harness.rs::layout_last_line_without_*` | [ ] | [ ] |
 | M21 | Tabs, multibyte, CRLF | Target the tab, emoji, accented text, and final line in `unicode.rs`. | Tab counts as one column. Emoji selects exact UTF-16 code units. CRLF is not counted as part of a line. The final-line hint anchors after the last character. | `harness.rs::character_*`, `navigation.rs` | [ ] | [ ] |
 | M22 | Text formats and unlisted languages | Target a `.txt` file and a Markdown file. Then try a file with an unknown extension. | `.txt` attaches through `Plain Text`; Markdown attaches directly. A file with an unknown extension has no language; add the language to `extension.toml` or set the buffer language to `Plain Text`. | `e2e: plain-text, markdown-source` | [ ] | [ ] |
+| M23 | Steps across hint chunks | Use a source longer than 50 rows with steps more than 50 lines apart (the `long-file` e2e case). Step through the tour, then keep switching steps. | The body hint for the new step stays visible after the editor scrolls. It does not flash and disappear, and it does not need another scroll or step change to come back. | `e2e long-file`, `server.rs::step_change_defers_*`, `server.rs::stop_cancels_*`, `server.rs::active_source_changes_defer_*` | [ ] | [ ] |
 
 ### Cleanup
 

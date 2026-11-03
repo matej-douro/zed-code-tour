@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::HashMap,
+    fmt,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result};
 use crossbeam_channel::Sender;
@@ -20,7 +24,7 @@ use crate::{
     settings::{AutoStart, TourSettings},
     state::{TourState, UpdateOutcome},
     tour::TourRange,
-    uri::{file_path, file_uri, is_tour_document},
+    uri::{file_path, file_uri, is_tour_document, same_file_uri},
 };
 
 pub const SERVER_NAME: &str = "tour-lsp";
@@ -48,6 +52,17 @@ const INACTIVE_START_COMMAND: &str = "tour.start";
 const RESUME_COMMAND: &str = "tour.resume";
 const STOP_COMMAND: &str = "tour.stop";
 
+/// Delay before the hint refresh that follows a step change.
+///
+/// `window/showDocument` only schedules the editor autoscroll; the scroll is
+/// applied on the next frame, after the response. A refresh sent sooner makes
+/// Zed snapshot the pre-scroll visible rows, and its invalidating fetch then
+/// removes the hint that the post-scroll fetch added. See #42.
+const HINT_REFRESH_DELAY: Duration = Duration::from_millis(250);
+/// Delay used when the showDocument response arrives after the initial delay,
+/// for example when the target file takes a while to open.
+const HINT_REFRESH_AFTER_RESPONSE_DELAY: Duration = Duration::from_millis(100);
+
 /// LSP request handlers and the single active tour state.
 pub struct TourServer {
     settings: TourSettings,
@@ -59,6 +74,8 @@ pub struct TourServer {
     next_request_id: u64,
     pending_start_prompt: Option<RequestId>,
     pending_show_documents: HashMap<RequestId, Uri>,
+    /// Deadline for the deferred hint refresh that follows a step change.
+    pending_hint_refresh: Option<Instant>,
 }
 
 impl TourServer {
@@ -70,6 +87,7 @@ impl TourServer {
             next_request_id: 0,
             pending_start_prompt: None,
             pending_show_documents: HashMap::new(),
+            pending_hint_refresh: None,
         }
     }
 
@@ -168,7 +186,23 @@ impl TourServer {
     /// Handle a response to a request sent by the server.
     pub fn handle_response(&mut self, response: &Response, sender: &Sender<Message>) -> Result<()> {
         if let Some(uri) = self.pending_show_documents.remove(&response.id) {
+            // The client applies the selection before responding, but the
+            // autoscroll that centers it runs on the next frame. Keep the
+            // refresh after that, and cover a slow file open by rescheduling
+            // from the response without ever moving the deadline earlier, so a
+            // concurrent newer step change keeps its later deadline.
+            let refresh_hint = self
+                .state
+                .active()
+                .is_some_and(|active| active.running && active.matches_source(&uri));
             self.report_show_document_response(response, uri, sender)?;
+            if refresh_hint {
+                let deadline = Instant::now() + HINT_REFRESH_AFTER_RESPONSE_DELAY;
+                self.pending_hint_refresh = Some(
+                    self.pending_hint_refresh
+                        .map_or(deadline, |pending| pending.max(deadline)),
+                );
+            }
         }
 
         if self.pending_start_prompt.as_ref() != Some(&response.id) {
@@ -238,7 +272,7 @@ impl TourServer {
         if !is_tour {
             self.resolve_active_source_range();
             if is_active_source {
-                self.refresh_all(sender)?;
+                self.refresh_overlays_after_document_change(&document.uri, sender)?;
             }
             return Ok(());
         }
@@ -292,7 +326,7 @@ impl TourServer {
         if !is_tour {
             self.resolve_active_source_range();
             if is_active_source {
-                self.refresh_all(sender)?;
+                self.refresh_overlays_after_document_change(&uri, sender)?;
             }
             return Ok(());
         }
@@ -316,7 +350,13 @@ impl TourServer {
     }
 
     /// Select a step, resolve its exact UTF-16 range from the source document,
-    /// then ask the client to show it and refresh both overlays.
+    /// then ask the client to show it and refresh the overlays.
+    ///
+    /// The hint refresh is deferred until the client has scrolled to the new
+    /// selection. Sending it together with `window/showDocument` makes Zed
+    /// snapshot the pre-scroll visible rows and then drop the hint; see #42.
+    /// The control row is refreshed immediately because its position does not
+    /// depend on the viewport.
     ///
     /// Source loading and range conversion happen before the step index is
     /// changed, so a missing file or an out-of-range column leaves the current
@@ -346,7 +386,8 @@ impl TourServer {
         }
 
         self.send_show_document(source_uri, range, sender)?;
-        self.refresh_all(sender)
+        self.pending_hint_refresh = Some(Instant::now() + HINT_REFRESH_DELAY);
+        self.refresh_code_lenses(sender)
             .map_err(|error| CommandError::Internal(error.to_string()))
     }
 
@@ -800,8 +841,52 @@ impl TourServer {
             .is_some_and(|active| active.matches_source(uri))
     }
 
+    /// Whether a `window/showDocument` for this document is still in flight.
+    fn is_awaiting_show_document(&self, uri: &Uri) -> bool {
+        self.pending_show_documents
+            .values()
+            .any(|pending| same_file_uri(pending, uri))
+    }
+
+    /// Refresh the overlays after a change to an active source document.
+    ///
+    /// Hints are deferred while the client is still applying a showDocument
+    /// selection, because the refresh would snapshot the pre-scroll viewport.
+    /// The deferred refresh scheduled by the step change covers the hint then.
+    fn refresh_overlays_after_document_change(
+        &mut self,
+        uri: &Uri,
+        sender: &Sender<Message>,
+    ) -> Result<()> {
+        if self.is_awaiting_show_document(uri) {
+            self.refresh_code_lenses(sender)
+        } else {
+            self.refresh_all(sender)
+        }
+    }
+
     /// Ask the client to recompute inlay hints.
     pub fn refresh_inlay_hints(&mut self, sender: &Sender<Message>) -> Result<()> {
+        self.pending_hint_refresh = None;
+        self.send_refresh(sender, INLAY_HINT_REFRESH)
+    }
+
+    /// Remaining delay before the deferred step-change hint refresh, if any.
+    pub fn hint_refresh_timeout(&self) -> Option<Duration> {
+        self.pending_hint_refresh
+            .map(|deadline| deadline.saturating_duration_since(Instant::now()))
+    }
+
+    /// Send the deferred step-change hint refresh once `now` reaches its
+    /// deadline. The pending refresh is cleared so it is sent at most once.
+    pub fn flush_due_hint_refresh(&mut self, now: Instant, sender: &Sender<Message>) -> Result<()> {
+        let Some(deadline) = self.pending_hint_refresh else {
+            return Ok(());
+        };
+        if now < deadline {
+            return Ok(());
+        }
+        self.pending_hint_refresh = None;
         self.send_refresh(sender, INLAY_HINT_REFRESH)
     }
 
@@ -929,6 +1014,9 @@ fn has_tour_settings(value: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
+    use crossbeam_channel::Sender;
     use lsp_server::{Message, Request, RequestId, Response};
     use lsp_types::{
         InlayHint, InlayHintLabel, InlayHintParams, Position, Range, ShowMessageRequestParams,
@@ -1074,15 +1162,24 @@ Next body.
     }
 
     fn assert_refreshes(requests: &[(RequestId, String, Value)]) {
-        let refresh_methods: Vec<_> = requests
+        let mut refresh_methods: Vec<_> = requests
             .iter()
             .filter(|(_, method, _)| method.contains("/refresh"))
             .map(|(_, method, _)| method.as_str())
             .collect();
+        refresh_methods.sort_unstable();
         assert_eq!(
             refresh_methods,
-            vec!["workspace/inlayHint/refresh", "workspace/codeLens/refresh"]
+            vec!["workspace/codeLens/refresh", "workspace/inlayHint/refresh"]
         );
+    }
+
+    /// Send the hint refresh that a step change defers until after the client
+    /// scrolls, so tests can assert it without waiting for the wall clock.
+    fn flush_deferred_hint_refresh(server: &mut TourServer, sender: &Sender<Message>) {
+        server
+            .flush_due_hint_refresh(Instant::now() + Duration::from_secs(1), sender)
+            .expect("deferred hint refresh should send");
     }
 
     fn request_methods(messages: impl IntoIterator<Item = Message>) -> Vec<String> {
@@ -1375,6 +1472,7 @@ Next body.
 
         let next = server.handle_request(&execute_command_request(2, "tour.next"), &sender);
         assert_command_ok(&next);
+        flush_deferred_hint_refresh(&mut server, &sender);
         let requests = drain_server_requests(&receiver);
         assert!(
             requests
@@ -1401,6 +1499,122 @@ Next body.
         assert!(
             server.inlay_hints(&inlay_hint_params(SOURCE_URI)).is_none(),
             "a stopped tour should not return a hint"
+        );
+    }
+
+    #[test]
+    fn step_change_defers_the_hint_refresh_until_after_the_client_scrolls() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        open_navigation_sources(&mut server, &sender);
+        server
+            .handle_notification(&did_open_notification(TOUR_URI, TWO_STEP_TOUR), &sender)
+            .expect("tour should open");
+        let _ = receiver.try_iter().count();
+
+        let start = server.handle_request(&execute_command_request(1, "tour.start"), &sender);
+        assert_command_ok(&start);
+        let requests = drain_server_requests(&receiver);
+        let methods: Vec<_> = requests
+            .iter()
+            .map(|(_, method, _)| method.as_str())
+            .collect();
+        assert_eq!(
+            methods,
+            vec!["window/showDocument", "workspace/codeLens/refresh"],
+            "the step change must not refresh hints before the client scrolls"
+        );
+
+        let show_document_id = requests
+            .iter()
+            .find(|(_, method, _)| method == "window/showDocument")
+            .expect("missing showDocument")
+            .0
+            .clone();
+        server
+            .handle_response(
+                &Response::new_ok(show_document_id, json!({ "success": true })),
+                &sender,
+            )
+            .expect("showDocument response should be handled");
+        assert!(
+            receiver.try_recv().is_err(),
+            "rescheduling must not send the refresh immediately"
+        );
+
+        flush_deferred_hint_refresh(&mut server, &sender);
+        assert_eq!(
+            request_methods(receiver.try_iter()),
+            vec!["workspace/inlayHint/refresh"]
+        );
+    }
+
+    #[test]
+    fn stop_cancels_the_deferred_hint_refresh() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        open_navigation_sources(&mut server, &sender);
+        server
+            .handle_notification(&did_open_notification(TOUR_URI, TWO_STEP_TOUR), &sender)
+            .expect("tour should open");
+        let _ = receiver.try_iter().count();
+
+        let start = server.handle_request(&execute_command_request(1, "tour.start"), &sender);
+        assert_command_ok(&start);
+        let show_document_id = drain_server_requests(&receiver)
+            .into_iter()
+            .find(|(_, method, _)| method == "window/showDocument")
+            .expect("missing showDocument")
+            .0;
+
+        let stop = server.handle_request(&execute_command_request(2, "tour.stop"), &sender);
+        assert_command_ok(&stop);
+        let _ = receiver.try_iter().count();
+
+        server
+            .handle_response(
+                &Response::new_ok(show_document_id, json!({ "success": true })),
+                &sender,
+            )
+            .expect("showDocument response should be handled");
+        flush_deferred_hint_refresh(&mut server, &sender);
+
+        assert!(
+            receiver.try_recv().is_err(),
+            "a stopped tour should not reschedule or send the deferred hint refresh"
+        );
+    }
+
+    #[test]
+    fn active_source_changes_defer_hints_while_a_show_document_is_pending() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut server = TourServer::new(settings(AutoStart::Never));
+
+        open_navigation_sources(&mut server, &sender);
+        server
+            .handle_notification(&did_open_notification(TOUR_URI, TWO_STEP_TOUR), &sender)
+            .expect("tour should open");
+        let _ = receiver.try_iter().count();
+        let start = server.handle_request(&execute_command_request(1, "tour.start"), &sender);
+        assert_command_ok(&start);
+        let _ = receiver.try_iter().count();
+
+        server
+            .handle_notification(&did_open_source_notification(SOURCE_URI, SOURCE), &sender)
+            .expect("source should reopen");
+        assert_eq!(
+            request_methods(receiver.try_iter()),
+            vec!["workspace/codeLens/refresh"],
+            "a hint refresh while the selection is pending would use the pre-scroll viewport"
+        );
+
+        flush_deferred_hint_refresh(&mut server, &sender);
+        assert_eq!(
+            request_methods(receiver.try_iter()),
+            vec!["workspace/inlayHint/refresh"],
+            "the deferred step-change refresh still covers the hint"
         );
     }
 
@@ -2036,6 +2250,7 @@ Entry body.
         let active = server.state().active().expect("tour is active");
         assert!(active.running);
         assert_eq!(active.current_step, 0);
+        flush_deferred_hint_refresh(&mut server, &sender);
         let requests = drain_server_requests(&receiver);
         assert_show_document(&requests, SOURCE_URI, (1, 2), (1, 8));
         assert_refreshes(&requests);
@@ -2058,12 +2273,15 @@ Entry body.
         let active = server.state().active().expect("tour is active");
         assert!(active.running);
         assert_eq!(active.current_step, 0);
+        let mut methods = request_methods(receiver.try_iter());
+        flush_deferred_hint_refresh(&mut server, &sender);
+        methods.extend(request_methods(receiver.try_iter()));
         assert_eq!(
-            request_methods(receiver.try_iter()),
+            methods,
             vec![
                 "window/showDocument".to_owned(),
-                "workspace/inlayHint/refresh".to_owned(),
                 "workspace/codeLens/refresh".to_owned(),
+                "workspace/inlayHint/refresh".to_owned(),
             ]
         );
 
@@ -2097,7 +2315,9 @@ Entry body.
         let active = server.state().active().expect("tour is active");
         assert!(active.running);
         assert_eq!(active.current_step, 0);
-        assert_eq!(receiver.try_iter().count(), 3);
+        assert_eq!(receiver.try_iter().count(), 2);
+        flush_deferred_hint_refresh(&mut server, &sender);
+        assert_eq!(receiver.try_iter().count(), 1);
 
         let stop = server.handle_request(&execute_command_request(5, "tour.stop"), &sender);
         assert!(stop.response_result.is_ok());
@@ -2156,6 +2376,7 @@ Entry body.
         assert!(active.running);
         assert_eq!(active.current_step, 1);
 
+        flush_deferred_hint_refresh(&mut server, &sender);
         let requests = drain_server_requests(&receiver);
         assert_show_document(&requests, ROUTER_URI, (3, 0), (3, 3));
         assert_refreshes(&requests);
@@ -2203,12 +2424,15 @@ Entry body.
         let active = server.state().active().expect("tour is active");
         assert!(active.running);
         assert_eq!(active.current_step, 0);
+        let mut methods = request_methods(receiver.try_iter());
+        flush_deferred_hint_refresh(&mut server, &sender);
+        methods.extend(request_methods(receiver.try_iter()));
         assert_eq!(
-            request_methods(receiver.try_iter()),
+            methods,
             vec![
                 "window/showDocument".to_owned(),
-                "workspace/inlayHint/refresh".to_owned(),
                 "workspace/codeLens/refresh".to_owned(),
+                "workspace/inlayHint/refresh".to_owned(),
             ]
         );
     }
@@ -2287,12 +2511,15 @@ Entry body.
         let active = server.state().active().expect("tour is active");
         assert!(active.running);
         assert_eq!(active.current_step, 0);
+        let mut methods = request_methods(receiver.try_iter());
+        flush_deferred_hint_refresh(&mut server, &sender);
+        methods.extend(request_methods(receiver.try_iter()));
         assert_eq!(
-            request_methods(receiver.try_iter()),
+            methods,
             vec![
                 "window/showDocument".to_owned(),
-                "workspace/inlayHint/refresh".to_owned(),
                 "workspace/codeLens/refresh".to_owned(),
+                "workspace/inlayHint/refresh".to_owned(),
             ]
         );
     }
@@ -2498,6 +2725,7 @@ Entry body.
             &sender,
         );
         assert_command_ok(&response);
+        flush_deferred_hint_refresh(&mut server, &sender);
         let requests = drain_server_requests(&receiver);
         assert_show_document(&requests, "file:///tours/src/main.rs", (0, 4), (0, 6));
         assert_refreshes(&requests);
@@ -2515,6 +2743,7 @@ Entry body.
             &sender,
         );
         assert_command_ok(&response);
+        flush_deferred_hint_refresh(&mut server, &sender);
         let requests = drain_server_requests(&receiver);
         assert_show_document(&requests, "file:///tours/src/main.rs", (1, 4), (1, 7));
         assert_refreshes(&requests);
@@ -2528,6 +2757,7 @@ Entry body.
             &sender,
         );
         assert_command_ok(&response);
+        flush_deferred_hint_refresh(&mut server, &sender);
         let requests = drain_server_requests(&receiver);
         assert_show_document(&requests, "file:///tours/src/main.rs", (0, 9), (1, 2));
         assert_refreshes(&requests);
@@ -2549,6 +2779,7 @@ Entry body.
             &sender,
         );
         assert_command_ok(&response);
+        flush_deferred_hint_refresh(&mut server, &sender);
         let requests = drain_server_requests(&receiver);
         assert_show_document(&requests, "file:///tours/src/main.rs", (1, 4), (1, 7));
         assert_eq!(
@@ -2561,6 +2792,7 @@ Entry body.
             &sender,
         );
         assert_command_ok(&response);
+        flush_deferred_hint_refresh(&mut server, &sender);
         let requests = drain_server_requests(&receiver);
         assert_show_document(&requests, "file:///tours/src/main.rs", (0, 4), (0, 6));
         assert_eq!(
@@ -2651,6 +2883,7 @@ Entry body.
             &sender,
         );
         assert_command_ok(&response);
+        flush_deferred_hint_refresh(&mut server, &sender);
         assert_refreshes(&drain_server_requests(&receiver));
 
         let response = server.handle_request(

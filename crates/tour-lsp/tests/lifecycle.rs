@@ -190,12 +190,10 @@ fn auto_start_always_exposes_the_active_start_lens() {
         .collect();
     assert_eq!(
         methods,
-        vec![
-            "window/showDocument",
-            "workspace/inlayHint/refresh",
-            "workspace/codeLens/refresh",
-        ]
+        vec!["window/showDocument", "workspace/codeLens/refresh"]
     );
+    let deferred = client.receive();
+    assert_eq!(deferred["method"], "workspace/inlayHint/refresh");
 
     let lenses = response["result"].as_array().expect("code lens array");
     let titles: Vec<_> = lenses
@@ -352,8 +350,8 @@ fn auto_start_prompt_starts_after_confirmation() {
         methods,
         vec![
             "window/showDocument",
-            "workspace/inlayHint/refresh",
             "workspace/codeLens/refresh",
+            "workspace/inlayHint/refresh",
         ]
     );
 
@@ -475,9 +473,9 @@ fn navigation_commands_select_exact_utf16_ranges() {
             "workspace/inlayHint/refresh",
             "workspace/codeLens/refresh",
             "window/showDocument",
-            "workspace/inlayHint/refresh",
             "workspace/codeLens/refresh",
-        ]
+        ],
+        "the step change defers the hint refresh until after the client scrolls"
     );
 
     client.send(json!({

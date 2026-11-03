@@ -67,14 +67,30 @@ fn open_inactive(client: &mut LspClient, source: &str, tour: &str) {
 }
 
 fn start(client: &mut LspClient) -> Vec<Value> {
-    let (messages, response) = client.execute_command("tour.start", Vec::new());
-    assert_eq!(result(&response), &json!(null));
-    messages
+    step_transition(client, "tour.start", Vec::new())
 }
 
 fn next(client: &mut LspClient) -> Vec<Value> {
-    let (messages, response) = client.execute_command("tour.next", Vec::new());
+    step_transition(client, "tour.next", Vec::new())
+}
+
+/// Run a step-changing command and collect the hint refresh that the server
+/// defers until after the client has scrolled.
+fn step_transition(client: &mut LspClient, command: &str, arguments: Vec<Value>) -> Vec<Value> {
+    let (mut messages, response) = client.execute_command(command, arguments);
     assert_eq!(result(&response), &json!(null));
+    if messages
+        .iter()
+        .any(|message| message["method"] == json!("window/showDocument"))
+    {
+        let refresh = client.receive();
+        assert_eq!(
+            refresh["method"],
+            json!("workspace/inlayHint/refresh"),
+            "a step change should refresh hints after the client scrolls"
+        );
+        messages.push(refresh);
+    }
     messages
 }
 
@@ -112,8 +128,8 @@ fn assert_transition_refreshes(messages: &[Value]) {
         request_methods(messages),
         vec![
             "window/showDocument",
-            "workspace/inlayHint/refresh",
             "workspace/codeLens/refresh",
+            "workspace/inlayHint/refresh",
         ]
     );
 }
@@ -485,12 +501,10 @@ fn both_overlays_off_still_execute_the_tour_commands() {
     let messages = next(&mut client);
     assert_show_document(&messages, SOURCE_URI, (3, 0), (3, 3));
 
-    let (messages, response) = client.execute_command("tour.previous", Vec::new());
-    assert_eq!(result(&response), &json!(null));
+    let mut messages = step_transition(&mut client, "tour.previous", Vec::new());
     assert_show_document(&messages, SOURCE_URI, (1, 2), (1, 8));
 
-    let (messages, response) = client.execute_command("tour.goto", vec![json!(1)]);
-    assert_eq!(result(&response), &json!(null));
+    messages = step_transition(&mut client, "tour.goto", vec![json!(1)]);
     assert_show_document(&messages, SOURCE_URI, (3, 0), (3, 3));
 
     let (messages, response) = client.execute_command("tour.next", Vec::new());
@@ -508,8 +522,7 @@ fn both_overlays_off_still_execute_the_tour_commands() {
         "an out-of-range goto should report an error without moving"
     );
 
-    let (messages, response) = client.execute_command("tour.goto", vec![json!(0)]);
-    assert_eq!(result(&response), &json!(null));
+    let messages = step_transition(&mut client, "tour.goto", vec![json!(0)]);
     assert_show_document(&messages, SOURCE_URI, (1, 2), (1, 8));
 
     let (messages, response) = client.execute_command("tour.previous", Vec::new());

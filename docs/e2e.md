@@ -88,6 +88,7 @@ Useful flags:
 | `prompt-code-lens-off` | Prompt start works when code lens is disabled. |
 | `never` | `auto_start: never` leaves the tour inactive and shows the start lens. |
 | `navigate` | Next, Previous, Overview, tab switching, and Stop via real lens clicks. |
+| `long-file` | Step changes in a 130-row source across different 50-row hint chunks keep the body hint visible. |
 | `thread-link` | `Back to thread` focuses the link line and explains the static fallback. |
 | `multiple-tours` | Opening a second tour replaces the active tour and clears old overlays. |
 | `scroll` | Scrolling down and back keeps the hint attached to the viewport. |
