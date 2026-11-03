@@ -113,7 +113,7 @@ def make_title(path: Path, screenshot: Path) -> None:
         "38",
         "-annotate",
         "+120+500",
-        "Guided code tours, written as Markdown.",
+        "A guided walkthrough, written as Markdown.",
         "-fill",
         MUTED,
         "-font",
@@ -122,7 +122,7 @@ def make_title(path: Path, screenshot: Path) -> None:
         "22",
         "-annotate",
         "+120+560",
-        "exact ranges  ·  inlay hints  ·  code lens controls",
+        "onboarding  ·  code review  ·  deep dives",
         "-fill",
         ACCENT,
         "-draw",
@@ -195,7 +195,7 @@ def make_end(path: Path, screenshot: Path) -> None:
         "34",
         "-annotate",
         "+120+470",
-        "Add a .tour.md file, open it in Zed,",
+        "Write a .tour.md file, open it in Zed,",
         "-annotate",
         "+120+520",
         "and press Start tour.",
@@ -216,7 +216,7 @@ def make_end(path: Path, screenshot: Path) -> None:
         "24",
         "-annotate",
         "+120+700",
-        "Zed extension + tour-lsp  ·  LSP inlay hints and code lenses",
+        "Onboarding, reviews, and deep dives, without leaving the editor.",
         str(path),
     )
 
@@ -405,14 +405,14 @@ def main() -> int:
     make_end(end, stills["01-tour-file"])
 
     captions = [
-        ("intro", "TOUR FILE", "The tour file is plain Markdown"),
-        ("step1", "STEP 01 / 05", "Exact character ranges"),
-        ("step2", "STEP 02 / 05", "The extension starts tour-lsp"),
-        ("step3", "STEP 03 / 05", "Targets are parsed and validated together"),
-        ("step4", "STEP 04 / 05", "The step renders as an inlay hint"),
-        ("step5", "STEP 05 / 05", "Prev, Next, Overview, and Stop"),
-        ("overview", "OVERVIEW", "Back to the tour file"),
-        ("stop", "STOP", "Stop clears every overlay"),
+        ("intro", "TOUR FILE", "A tour is a Markdown file you can open anywhere"),
+        ("step1", "STEP 01 / 05", "Start at the front door"),
+        ("step2", "STEP 02 / 05", "Meet the engine behind the tour"),
+        ("step3", "STEP 03 / 05", "Land on the exact line"),
+        ("step4", "STEP 04 / 05", "Read the note beside the code"),
+        ("step5", "STEP 05 / 05", "Move on without losing your place"),
+        ("overview", "OVERVIEW", "The tour file is your table of contents"),
+        ("stop", "STOP", "Stop anytime. The code is untouched."),
     ]
     caption_paths = {}
     for name, label, text in captions:

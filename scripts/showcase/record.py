@@ -42,7 +42,8 @@ SETTINGS = {
     "telemetry": {"diagnostics": False, "metrics": False},
     "auto_update": False,
     "languages": {"Rust": {"language_servers": ["tour", "!rust-analyzer"]}},
-    "project_panel": {"hide_gitignore": True, "default_width": 240},
+    "git": {"git_gutter": "hide"},
+    "project_panel": {"hide_gitignore": True, "git_status": False, "default_width": 240},
     "file_scan_exclusions": [
         "**/.git",
         "**/target",
