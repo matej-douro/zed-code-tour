@@ -22,6 +22,9 @@ prompt interactions, and saves screenshots.
 The full design, constraints, and open questions live in
 [HANDOFF.md](HANDOFF.md).
 
+A 30 second [showcase video](docs/showcase.md) follows a contributor through a
+tour file in a real Zed window.
+
 ## Roadmap
 
 - [ ] Spike: verify code lens and inlay hint ordering and placement
