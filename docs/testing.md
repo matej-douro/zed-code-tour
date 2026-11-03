@@ -26,6 +26,7 @@ The script runs, in order:
 
 ```sh
 ./scripts/check-packaging.sh
+./scripts/check-skill.sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo build --workspace --locked
