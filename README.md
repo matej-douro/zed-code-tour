@@ -22,7 +22,7 @@ prompt interactions, and saves screenshots.
 The full design, constraints, and open questions live in
 [HANDOFF.md](HANDOFF.md).
 
-[![zed-code-tour showcase](docs/media/zed-code-tour-showcase-poster.png)](docs/media/zed-code-tour-showcase.mp4)
+[![zed-code-tour showcase](docs/media/zed-code-tour-showcase-poster.png)](https://github.com/user-attachments/assets/47449c67-115a-487b-b714-f0f7e7e46246)
 
 ## Roadmap
 
