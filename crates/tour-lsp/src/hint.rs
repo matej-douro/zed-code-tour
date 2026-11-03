@@ -153,6 +153,17 @@ pub(crate) fn source_line_count(source: &str) -> u32 {
     u32::try_from(source.split('\n').count()).unwrap_or(u32::MAX)
 }
 
+/// The LSP position at the end of the document text.
+///
+/// A trailing newline creates an empty final line, so the end position is the
+/// start of that line. The character offset uses UTF-16 code units, like every
+/// other position the server derives from source text.
+pub(crate) fn source_end_position(source: &str) -> Position {
+    let last_line = source_line_count(source).saturating_sub(1);
+    let character = source_line(source, last_line).map(utf16_len).unwrap_or(0);
+    Position::new(last_line, character)
+}
+
 fn source_line(source: &str, line: u32) -> Option<&str> {
     let line = usize::try_from(line).ok()?;
     source
@@ -169,7 +180,7 @@ fn utf16_len(text: &str) -> u32 {
 mod tests {
     use lsp_types::{InlayHint, InlayHintLabel, Position, Range};
 
-    use super::{MAX_BODY_LINES, MAX_BODY_WIDTH, body_hint, format_body};
+    use super::{MAX_BODY_LINES, MAX_BODY_WIDTH, body_hint, format_body, source_end_position};
     use crate::{settings::Placement, tour::parse_tour};
 
     fn step(hint: &str) -> crate::tour::TourStep {
@@ -378,5 +389,15 @@ mod tests {
 
         assert_eq!(hint.position, Position::new(0, 3));
         assert!(hint_label(&hint).starts_with('\n'));
+    }
+
+    #[test]
+    fn end_position_handles_newlines_crlf_and_utf16() {
+        assert_eq!(source_end_position(""), Position::new(0, 0));
+        assert_eq!(source_end_position("abc"), Position::new(0, 3));
+        assert_eq!(source_end_position("abc\n"), Position::new(1, 0));
+        assert_eq!(source_end_position("abc\ndef"), Position::new(1, 3));
+        assert_eq!(source_end_position("abc\ndef\r\n"), Position::new(2, 0));
+        assert_eq!(source_end_position("a😀"), Position::new(0, 3));
     }
 }

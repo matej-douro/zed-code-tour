@@ -12,7 +12,10 @@ per-item style fields.
 - a tour is active and running,
 - the requested document is the active step's source file,
 - the step has body text,
-- the requested position is inside the range the client asked about,
+- the requested position is inside the range the client asked about, treating
+  the end as half-open except when the range ends at the end of the document,
+  where that last position is included (this matches Zed and keeps a hint on a
+  50-row chunk boundary in the chunk that owns it),
 - the source document is open, so its current text is available for the
   last-line fallback.
 

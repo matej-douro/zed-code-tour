@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use crate::{
     controls::control_lenses,
-    hint::body_hint,
+    hint::{body_hint, source_end_position},
     navigation::{PositionError, show_document_params, tour_range_to_lsp},
     settings::{AutoStart, TourSettings},
     state::{TourState, UpdateOutcome},
@@ -787,7 +787,7 @@ impl TourServer {
         let source = self.documents.get(&params.text_document.uri)?;
         let hint = body_hint(step, source_range, source, self.settings.placement)?;
 
-        if hint.position < params.range.start || hint.position > params.range.end {
+        if !hint_in_requested_range(hint.position, params.range, source) {
             return None;
         }
 
@@ -826,6 +826,20 @@ impl TourServer {
         sender.send(Message::Request(request))?;
         Ok(())
     }
+}
+
+/// Whether a body hint position is inside the range the client asked about.
+///
+/// LSP ranges are half-open. Zed includes the end of a range that reaches the
+/// end of the document, because the final position has nowhere else to live.
+/// Matching that keeps a hint anchored on a chunk boundary in the chunk that
+/// owns it, instead of returning it for the previous chunk where the client
+/// drops it.
+fn hint_in_requested_range(position: Position, range: Range, source: &str) -> bool {
+    if position < range.start {
+        return false;
+    }
+    position < range.end || (position == range.end && range.end == source_end_position(source))
 }
 
 fn code_lens(range: Range, title: impl Into<String>, command: &str) -> CodeLens {
@@ -1192,7 +1206,7 @@ Next body.
         }
     }
 
-    fn active_hint(source: &str, placement: Placement) -> Option<InlayHint> {
+    fn running_server(source: &str, tour: &str, placement: Placement) -> TourServer {
         let (sender, _receiver) = crossbeam_channel::unbounded();
         let mut server = TourServer::new(TourSettings {
             placement,
@@ -1204,7 +1218,7 @@ Next body.
             .expect("source should open");
         server
             .handle_notification(
-                &did_open_notification("file:///tours/example.tour.md", BODY_TOUR),
+                &did_open_notification("file:///tours/example.tour.md", tour),
                 &sender,
             )
             .expect("tour should open");
@@ -1215,6 +1229,10 @@ Next body.
             .running = true;
 
         server
+    }
+
+    fn active_hint(source: &str, placement: Placement) -> Option<InlayHint> {
+        running_server(source, BODY_TOUR, placement)
             .inlay_hints(&inlay_hint_params(SOURCE_URI))
             .and_then(|hints| hints.into_iter().next())
     }
@@ -1509,8 +1527,51 @@ Next body.
         params.range = Range::new(Position::new(0, 0), Position::new(1, 0));
         assert!(server.inlay_hints(&params).is_none());
 
-        params.range = Range::new(Position::new(2, 0), Position::new(2, 0));
+        params.range = Range::new(Position::new(2, 0), Position::new(3, 0));
         assert!(server.inlay_hints(&params).is_some());
+    }
+
+    #[test]
+    fn requested_range_end_is_exclusive() {
+        let server = running_server(SOURCE, BODY_TOUR, Placement::Below);
+        let hint = server
+            .inlay_hints(&inlay_hint_params(SOURCE_URI))
+            .expect("hint should exist")
+            .remove(0);
+        assert_eq!(hint.position, Position::new(2, 0));
+
+        let mut params = inlay_hint_params(SOURCE_URI);
+        params.range = Range::new(Position::new(0, 0), Position::new(2, 0));
+        assert!(
+            server.inlay_hints(&params).is_none(),
+            "a range that ends on the hint must not include it"
+        );
+
+        params.range = Range::new(Position::new(2, 0), Position::new(3, 0));
+        assert!(
+            server.inlay_hints(&params).is_some(),
+            "a range that starts on the hint includes it"
+        );
+    }
+
+    #[test]
+    fn requested_range_includes_the_end_of_the_document() {
+        let source = "line0\nline1";
+        let server = running_server(source, BODY_TOUR, Placement::Below);
+
+        let mut params = inlay_hint_params(SOURCE_URI);
+        params.range = Range::new(Position::new(0, 0), Position::new(1, 5));
+        let hint = server
+            .inlay_hints(&params)
+            .expect("the document end is inclusive")
+            .remove(0);
+        assert_eq!(hint.position, Position::new(1, 5));
+
+        params.range = Range::new(Position::new(0, 0), Position::new(1, 4));
+        assert!(
+            server.inlay_hints(&params).is_none(),
+            "the hint is past the requested range"
+        );
     }
 
     #[test]
