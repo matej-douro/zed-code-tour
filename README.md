@@ -8,8 +8,9 @@ Source buffers are never edited.
 
 Status: early implementation. The extension and language server start and
 speak LSP, the tour file parser and model are implemented, the language server
-tracks one active tour, and the tour file has a start/stop code lens with the
-`always`, `prompt`, and `never` auto-start modes. Character-range navigation
+tracks one active tour, and the tour file has a start/stop/resume code lens with
+the `always`, `prompt`, and `never` auto-start modes. Resume returns to the open
+step instead of restarting at step 0. Character-range navigation
 selects exact UTF-16 ranges with `window/showDocument`. Agent-facing usage docs
 and a parse-tested sample tour are available. The active step is rendered as a
 body inlay hint in the source file, and the active source file has a step control
@@ -221,19 +222,20 @@ Copy the `skills/zed-code-tour` directory into one of those roots. See
 | --- | --- | --- |
 | `prompt` (default) | On `didOpen`, asks `Start tour` or `Not now`. | One extra click, but opening a tour to read or edit it does not start a tour unexpectedly. |
 | `always` | Starts at step 0 as soon as the tour file opens. | The shortest agent flow, but any open starts the tour, including reopening the file later. Use it when opening a tour always means starting one. |
-| `never` | Does not prompt or start. Waits for the start/stop code lens. | Fully manual, but it needs code lens. With code lens off there is no visible start control in v1. |
+| `never` | Does not prompt or start. Waits for the start/stop/resume code lens. | Fully manual, but it needs code lens. With code lens off there is no visible start control in v1. |
 
 The agent cannot override `auto_start` per tour. It is the user's setting in
 `lsp.tour.settings`.
 
 ### Code lens caveat
 
-The tour-file start/stop lens and the source step control row are code lenses.
-Code lens is off by default. With code lens off:
+The tour-file start/stop/resume lens and the source step control row are code
+lenses. Code lens is off by default. With code lens off:
 
 - `auto_start: "always"` still starts the tour.
 - `auto_start: "prompt"` still shows the start prompt.
-- The start/stop lens is not rendered, and the step controls are not available.
+- The start/stop/resume lens is not rendered, and the step controls are not
+  available.
 - `auto_start: "never"` leaves no visible way to start the tour.
 
 Enable code lens in Zed (`"code_lens": "on"`) when you want the manual start lens
@@ -361,8 +363,8 @@ language server. The server handles `initialize`, `initialized`, `didOpen`,
 `didChange`, `didClose`, `workspace/didChangeConfiguration`,
 `textDocument/codeLens`, `workspace/executeCommand`, `shutdown`, and `exit`;
 advertises the tour caps and commands; tracks the active tour; returns the
-tour-file start/stop lens, the source-file step control row, and the body inlay
-hint for the active step.
+tour-file start/stop/resume lens, the source-file step control row, and the body
+inlay hint for the active step.
 
 ## Packaging, install, and release
 

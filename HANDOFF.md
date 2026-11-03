@@ -150,6 +150,7 @@ Suggested capabilities:
 Suggested commands:
 
 - `tour.start`
+- `tour.resume`
 - `tour.stop`
 - `tour.next`
 - `tour.previous`
@@ -170,8 +171,11 @@ On `didOpen` of a `*.tour.md`:
 On `textDocument/codeLens` for a tour file:
 
 - Return a lens at the first line.
-- Inactive: `▶ Start tour (N steps)`.
-- Active: `■ Stop tour | ⟳ Restart | 2/N`.
+- Inactive at step 0: `▶ Start tour (N steps)`.
+- Inactive after a stop on a later step:
+  `▶ Start tour (N steps) | ▶ Resume | 2/N`.
+- Active: `■ Stop tour | ⟳ Restart | 2/N | ▶ Resume`. Resume selects the
+  current step again instead of restarting at step 0.
 
 On `textDocument/codeLens` for an active source file:
 

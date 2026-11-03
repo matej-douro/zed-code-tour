@@ -14,16 +14,20 @@ The server advertises:
 - `textDocumentSync: full`, so it receives the complete `didChange` text.
 - `inlayHintProvider: true`.
 - `codeLensProvider: { resolveProvider: false }`.
-- `executeCommandProvider` with `tour.start`, `tour.stop`, `tour.next`,
-  `tour.previous`, `tour.goto`, `tour.overview`, and `tour.backToThread`.
+- `executeCommandProvider` with `tour.start`, `tour.resume`, `tour.stop`,
+  `tour.next`, `tour.previous`, `tour.goto`, `tour.overview`, and
+  `tour.backToThread`.
 
-`tour.start`, `tour.stop`, `tour.next`, `tour.previous`, and `tour.goto` are
-handled. `tour.start` starts an inactive tour at step 0, restarts a running tour
-at step 0, and selects that range. `tour.stop` marks the tour inactive. The
-navigation commands select exact UTF-16 ranges; see
-[navigation.md](navigation.md). `tour.overview` focuses the active tour file at
-the top. `tour.backToThread` focuses the recorded thread link line and explains
-the v1 routing fallback; see [thread-link.md](thread-link.md).
+`tour.start`, `tour.resume`, `tour.stop`, `tour.next`, `tour.previous`, and
+`tour.goto` are handled. `tour.start` starts an inactive tour at step 0,
+restarts a running tour at step 0, and selects that range. `tour.resume`
+selects the current step without resetting it and marks the tour running, so a
+stopped tour continues where it left off and a running tour returns from the
+overview to its open step. `tour.stop` marks the tour inactive. The navigation
+commands select exact UTF-16 ranges; see [navigation.md](navigation.md).
+`tour.overview` focuses the active tour file at the top. `tour.backToThread`
+focuses the recorded thread link line and explains the v1 routing fallback; see
+[thread-link.md](thread-link.md).
 
 ## Code lens
 
@@ -33,15 +37,21 @@ running. Other documents return an empty array.
 
 The tour-file lens is anchored at the first line, character 0:
 
-- Inactive: `▶ Start tour (N steps)`, command `tour.start`.
-- Active: `■ Stop tour` (command `tour.stop`) followed by
-  `⟳ Restart | <current>/<total>` (command `tour.start`).
+- Inactive at step 0: `▶ Start tour (N steps)`, command `tour.start`.
+- Inactive after stopping on a later step: `▶ Start tour (N steps)` (command
+  `tour.start`) followed by `▶ Resume | <current>/<total>` (command
+  `tour.resume`).
+- Active: `■ Stop tour` (command `tour.stop`), then
+  `⟳ Restart | <current>/<total>` (command `tour.start`), then `▶ Resume`
+  (command `tour.resume`).
 
-LSP code lenses carry one command each, so the active row is two lenses. Zed
+LSP code lenses carry one command each, so the active row is three lenses. Zed
 separates lenses on the same line with ` | `, which renders the documented
-`■ Stop tour | ⟳ Restart | 2/N` row. The step counter is part of the restart
-lens so it does not need a non-interactive lens. Both starting and restarting
-select step 0 and send both refresh notifications.
+`■ Stop tour | ⟳ Restart | 2/N | ▶ Resume` row. The step counter is part of
+the restart lens so it does not need a non-interactive lens. Starting and
+restarting select step 0. Resume keeps the current step and selects it again, so
+it can return from the tour-file overview or continue a stopped tour. All three
+send both refresh notifications through the navigation path.
 
 The source row is described in [step-controls.md](step-controls.md). For
 multi-step tours it is one line of three or four lenses, depending on the step:
